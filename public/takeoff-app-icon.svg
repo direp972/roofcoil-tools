@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Metal roof takeoff tool">
+  <defs><pattern id="g" width="12" height="12" patternUnits="userSpaceOnUse"><circle cx="6" cy="6" r="1.1" fill="#FFFFFF" fill-opacity="0.13"/></pattern></defs>
+  <rect width="128" height="128" rx="28" fill="#0F3D5C"/>
+  <rect width="128" height="128" rx="28" fill="url(#g)"/>
+  <g stroke="#A0602E" stroke-width="2.5" stroke-linecap="round" fill="none"><line x1="22" y1="18" x2="22" y2="30"/><line x1="106" y1="18" x2="106" y2="30"/><line x1="30" y1="24" x2="98" y2="24"/></g>
+  <path d="M22 24l8-4.5v9zM106 24l-8-4.5v9z" fill="#A0602E"/>
+  <g stroke="#F6F4EE" stroke-opacity="0.45" stroke-width="2"><line x1="36" y1="40" x2="36" y2="102"/><line x1="50" y1="40" x2="50" y2="102"/><line x1="64" y1="40" x2="64" y2="102"/><line x1="78" y1="40" x2="78" y2="102"/><line x1="92" y1="40" x2="92" y2="102"/></g>
+  <path d="M22 40H106V102H22ZM22 40L50 71H78L106 40M22 102L50 71M106 102L78 71" fill="none" stroke="#D4AF37" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="34" cy="90" r="8" fill="#4E8C74" stroke="#F6F4EE" stroke-width="2.5"/>
+</svg>

@@ -185,6 +185,7 @@ const NAV = (tag) => `<a class="ribbon" href="/get-listed.html"><b>Suppliers &am
     <a href="/articles/">Resources</a>
     <a href="/suppliers.html">Find a supplier</a>
     <a href="/get-listed.html">Get listed</a>
+    <span class="nav-drop"><a href="/metal-roof-takeoff">Takeoff</a><span class="nav-menu"><a href="/metal-roof-takeoff">How the takeoff works</a><a href="https://takeoff.roofcoil.com">Run a takeoff ↗</a></span></span>
   </nav>
   <a class="nav-phone" href="tel:+19729447963">972-944-7963</a><span data-auth-slot></span>
 </div></header>`;
@@ -197,6 +198,7 @@ const FOOTER = `<footer><div class="f-bot" style="flex-direction:column;gap:10px
     <a href="/articles/" style="color:#CFE0EC;text-decoration:none">Resources</a>
     <a href="/suppliers.html" style="color:#CFE0EC;text-decoration:none">Find a supplier</a>
     <a href="/get-listed.html" style="color:#CFE0EC;text-decoration:none">Get listed</a>
+    <a href="/metal-roof-takeoff" style="color:#CFE0EC;text-decoration:none">Metal roof takeoff</a>
     <a href="/members.html" style="color:#CFE0EC;text-decoration:none">Member tools</a>
   </nav>
   <div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;width:100%">
@@ -452,7 +454,7 @@ async function staticPages() {
     out.push({ loc, title, desc, lastmod: day(gitDate(path.posix.join("public", rel))), priority });
   };
   for (const f of (await fs.readdir(path.join(ROOT, "public"))).filter((f) => f.endsWith(".html") && !skip.has(f)).sort()) {
-    const loc = f === "home.html" ? `${SITE}/` : f === "standing-seam-panels.html" ? `${SITE}/panels` : `${SITE}/${f}`;
+    const loc = f === "home.html" ? `${SITE}/` : f === "standing-seam-panels.html" ? `${SITE}/panels` : f === "metal-roof-takeoff.html" ? `${SITE}/metal-roof-takeoff` : `${SITE}/${f}`;
     await add(f, loc, f === "home.html" ? "1.0" : "0.8");
   }
   for (const f of (await fs.readdir(path.join(ROOT, "public", "articles"))).filter((f) => f.endsWith(".html")).sort()) {
@@ -475,8 +477,11 @@ function llmsTxt(pages, all) {
 
 Every listed shop has its own page under /suppliers/ with a LocalBusiness record, the exact abilities it runs, colors carried, locations and contact details. Ability names are a fixed taxonomy (below); the directory at /suppliers.html filters on them and accepts ?ability=<name>, ?color=<name> and ?loc=<city> query strings.
 
+RoofCoil Takeoff (https://takeoff.roofcoil.com, free with a RoofCoil account; explained, with sign-up, at ${SITE}/metal-roof-takeoff) turns an EagleView Premium report PDF or EagleView XML data export into a metal roof takeoff in seconds: a cut length for every standing seam or PBR panel, a panel layout drawing, the installation order per facet, a bill of materials (clips, screws, trim in 10 ft sticks, Z-closures, butyl, sealant, underlayment, ice and water shield), trim drawn as the parts the shop bends with the 4 x 10 flat sheets they take, and pass/fail checks against the report's printed totals. It figures 12 panel systems (SS450, SS150, SS100, SSQ200, SSQ675, FF100, US-100NS, US-150, US-150LS, US-175LS, US-200, PBR / R-panel) and compares up to five options on the same roof. Other report formats are sent to the RoofCoil team rather than guessed at.
+
 ## Key pages
 ${line(`${SITE}/`, "Home")}
+${line(`${SITE}/metal-roof-takeoff`, "Metal roof takeoff")}
 ${line(`${SITE}/suppliers.html`, "Find a supplier")}
 ${line(`${SITE}/get-listed.html`, "Get listed")}
 ${line(`${SITE}/panels`, "Metal roof panels")}
