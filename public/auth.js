@@ -219,6 +219,10 @@
   #rc-auth .rc-skip{width:100%;margin-top:8px;border:none;background:none;color:#8A94A6;font-size:12.5px;cursor:pointer;font-family:inherit}`;
   document.head.appendChild(css);
 
+  // Google sign-in is switched off in Supabase until RoofCoil has its own Google login
+  // client; while it is off the button only leads to an error page.
+  const SOCIAL_SIGNIN = false;
+
   const modal = document.createElement("div");
   modal.id = "rc-auth";
   modal.innerHTML = `
@@ -251,7 +255,7 @@
     modal.querySelector("#rc-sub").textContent = m === "reset"
       ? "Enter the email on your account and we'll send you a link to choose a new password."
       : "One sign-in for the whole site — colors, the finder, the Panel & Trim apps, and your order history.";
-    modal.querySelector("#rc-social").style.display = m === "reset" ? "none" : "";
+    modal.querySelector("#rc-social").style.display = SOCIAL_SIGNIN && m !== "reset" ? "" : "none";
     modal.querySelector("#rc-name-co").style.display = m === "up" ? "block" : "none";
     modal.querySelector("#rc-pw-wrap").style.display = m === "reset" ? "none" : "";
     modal.querySelector("#rc-go").textContent = m === "in" ? "Sign in" : m === "reset" ? "Send reset link" : "Create account";
@@ -331,7 +335,7 @@
   function setModeAfterConfirm() {
     modal.querySelector("#rc-name-co").style.display = "none";
     modal.querySelector("#rc-pw-wrap").style.display = "";
-    modal.querySelector("#rc-social").style.display = "";
+    modal.querySelector("#rc-social").style.display = SOCIAL_SIGNIN ? "" : "none";
     modal.querySelector("#rc-swap").innerHTML = 'New here? <button type="button" data-mode="up">Create a free account</button> · <button type="button" data-mode="reset">Forgot password?</button>';
     modal.querySelector("#rc-go").textContent = "Sign in";
     mode = "in";

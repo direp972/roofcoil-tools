@@ -5,6 +5,9 @@ const INK = "#1C1C1E";
 const SAFETY = "#D4AF37";
 // Served on fortifiedmetals.com via that site's /app proxy — brand accordingly.
 const ON_FORTIFIED = typeof window !== "undefined" && window.location.hostname.includes("fortifiedmetals");
+// Google sign-in is switched off in Supabase until RoofCoil has its own Google login
+// client; while it is off the button only leads to an error page.
+const SOCIAL_SIGNIN = false;
 
 // Google's "G" mark, per their sign-in branding guidelines (white button, dark text).
 const GoogleG = () => (
@@ -175,7 +178,7 @@ export default function AuthGate({ children }) {
           {mode === "signin" ? "Sign in to see pricing and send orders to a shop" : mode === "reset" ? "Enter your email and we'll send a link to choose a new password" : "Free account — unlocks pricing, ordering and saved jobs"}
         </div>
 
-        {mode !== "reset" && (
+        {SOCIAL_SIGNIN && mode !== "reset" && (
           <>
             <button type="button" onClick={handleGoogle} disabled={submitting}
               style={{ width: "100%", padding: "11px", borderRadius: 8, border: "1px solid #dadce0", background: "#fff", color: "#3c4043", fontWeight: 600, fontSize: 14, cursor: submitting ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: 16, opacity: submitting ? 0.7 : 1 }}>
