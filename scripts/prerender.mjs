@@ -185,7 +185,7 @@ const NAV = (tag) => `<a class="ribbon" href="/get-listed.html"><b>Suppliers &am
     <a href="/articles/">Resources</a>
     <a href="/suppliers.html">Find a supplier</a>
     <a href="/get-listed.html">Get listed</a>
-    <span class="nav-drop"><a href="/metal-roof-takeoff">Takeoff</a><span class="nav-menu"><a href="/metal-roof-takeoff">How the takeoff works</a><a href="https://takeoff.roofcoil.com">Run a takeoff ↗</a></span></span>
+    <span class="nav-drop"><a href="/metal-roof-takeoff">Takeoff</a><span class="nav-menu"><a href="/metal-roof-takeoff">Metal roof takeoff</a><a href="/sheet-metal-takeoff">Sheet metal &amp; wall takeoff</a><a href="https://takeoff.roofcoil.com">Run a takeoff ↗</a></span></span>
   </nav>
   <a class="nav-phone" href="tel:+19729447963">972-944-7963</a><span data-auth-slot></span>
 </div></header>`;
@@ -199,6 +199,7 @@ const FOOTER = `<footer><div class="f-bot" style="flex-direction:column;gap:10px
     <a href="/suppliers.html" style="color:#CFE0EC;text-decoration:none">Find a supplier</a>
     <a href="/get-listed.html" style="color:#CFE0EC;text-decoration:none">Get listed</a>
     <a href="/metal-roof-takeoff" style="color:#CFE0EC;text-decoration:none">Metal roof takeoff</a>
+    <a href="/sheet-metal-takeoff" style="color:#CFE0EC;text-decoration:none">Sheet metal takeoff</a>
     <a href="/members.html" style="color:#CFE0EC;text-decoration:none">Member tools</a>
   </nav>
   <div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;width:100%">
@@ -454,7 +455,7 @@ async function staticPages() {
     out.push({ loc, title, desc, lastmod: day(gitDate(path.posix.join("public", rel))), priority });
   };
   for (const f of (await fs.readdir(path.join(ROOT, "public"))).filter((f) => f.endsWith(".html") && !skip.has(f)).sort()) {
-    const loc = f === "home.html" ? `${SITE}/` : f === "standing-seam-panels.html" ? `${SITE}/panels` : f === "metal-roof-takeoff.html" ? `${SITE}/metal-roof-takeoff` : `${SITE}/${f}`;
+    const loc = f === "home.html" ? `${SITE}/` : f === "standing-seam-panels.html" ? `${SITE}/panels` : f === "metal-roof-takeoff.html" ? `${SITE}/metal-roof-takeoff` : f === "sheet-metal-takeoff.html" ? `${SITE}/sheet-metal-takeoff` : `${SITE}/${f}`;
     await add(f, loc, f === "home.html" ? "1.0" : "0.8");
   }
   for (const f of (await fs.readdir(path.join(ROOT, "public", "articles"))).filter((f) => f.endsWith(".html")).sort()) {
@@ -479,9 +480,12 @@ Every listed shop has its own page under /suppliers/ with a LocalBusiness record
 
 RoofCoil Takeoff (https://takeoff.roofcoil.com, free with a RoofCoil account; explained, with sign-up, at ${SITE}/metal-roof-takeoff) turns an EagleView Premium report PDF or EagleView XML data export into a metal roof takeoff in seconds: a cut length for every standing seam or PBR panel, a panel layout drawing, the installation order per facet, a bill of materials (clips, screws, trim in 10 ft sticks, Z-closures, butyl, sealant, underlayment, ice and water shield), trim drawn as the parts the shop bends with the 4 x 10 flat sheets they take, a trim map coloring each roof edge by the trim that goes on it, and pass/fail checks against the report's printed totals. It figures 12 panel systems (SS450, SS150, SS100, SSQ200, SSQ675, FF100, US-100NS, US-150, US-150LS, US-175LS, US-200, PBR / R-panel) and compares up to five options on the same roof. Other report formats are sent to the RoofCoil team rather than guessed at.
 
+The same tool does sheet metal takeoffs for walls (explained, with a free standing seam panel calculator and a coverage-by-coil-width table, at ${SITE}/sheet-metal-takeoff): walls entered from the drawings or the field (eave walls, gable ends, shed walls, the strip of a taller wall above a lower roof) with doors and windows by tag such as 3068 or size such as 14x14, overhead doors and inside and outside corners, laid out with vertical standing seam or PBR panels (short pieces over doors, panels ordered full length and cut around windows, gable panels at their long side), with the cut list, wall trim in 10 ft sticks cut run by run (corners, base, eave and gable tops, wall-to-roof flashing, J-trim at openings), closures, screws, sealant, house wrap and a wall report PDF. A drawing set dropped on the takeoff is recognized and opens a wall takeoff with the drawings attached; walls are entered from the elevations, not read automatically.
+
 ## Key pages
 ${line(`${SITE}/`, "Home")}
 ${line(`${SITE}/metal-roof-takeoff`, "Metal roof takeoff")}
+${line(`${SITE}/sheet-metal-takeoff`, "Sheet metal takeoff")}
 ${line(`${SITE}/suppliers.html`, "Find a supplier")}
 ${line(`${SITE}/get-listed.html`, "Get listed")}
 ${line(`${SITE}/panels`, "Metal roof panels")}
