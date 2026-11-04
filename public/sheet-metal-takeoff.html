@@ -45,7 +45,7 @@
   {"@type":"Question","name":"How does the wall takeoff handle doors and windows?","acceptedAnswer":{"@type":"Answer","text":"Enter them by tag or size: 3068 is a 3'-0\" by 6'-8\" door, 14x14 an overhead door. A panel the full width of a door or overhead door becomes a short piece over it; panels at a window are ordered full length and cut around it on site. Openings come off the net wall area, and each gets its trim: J-trim at window heads, sills and jambs, door and overhead door trim at heads and jambs, and sealant around every opening."}},
   {"@type":"Question","name":"Can it read construction drawings?","acceptedAnswer":{"@type":"Answer","text":"Not by itself yet. Drop a drawing set on the takeoff and it recognizes it as drawings rather than a measurement report and opens a wall takeoff with the drawings attached; you enter the walls from the elevations. Roofs are read automatically from EagleView Premium report PDFs and EagleView XML data exports."}},
   {"@type":"Question","name":"How many flat sheets does the trim take?","acceptedAnswer":{"@type":"Answer","text":"It depends on each part's girth, the width of flat metal it is bent from. A 4 x 10 sheet is 48 in. wide, so it gives 48 divided by the girth, rounded down, pieces 10 ft long: a 12 in. girth gives 4 pieces a sheet, a 16 in. girth 3. The roof takeoff draws every trim part with its girth and adds up the 4 x 10 sheets the order takes; wall trim is counted in 10 ft sticks, run by run."}},
-  {"@type":"Question","name":"Which panel profiles does it figure?","acceptedAnswer":{"@type":"Answer","text":"Twelve: SS450, SSQ675, US-150LS and US-175LS snap-lock; SS100, SS150, SSQ200, US-150 and US-200 mechanical seam; FF100 slotted flange and US-100NS nail strip; and PBR / R-panel at 36 in. coverage. Each carries its seam take-up and clip, so the panel count and the clip order follow the profile you pick."}},
+  {"@type":"Question","name":"Which panel profiles does it figure?","acceptedAnswer":{"@type":"Answer","text":"Seven: SS450 and SSQ675 snap-lock; SS100, SS150 and SSQ200 mechanical seam; FF100 slotted flange; and PBR / R-panel at 36 in. coverage. Each carries its seam take-up and clip, so the panel count and the clip order follow the profile you pick."}},
   {"@type":"Question","name":"Is the sheet metal takeoff free?","acceptedAnswer":{"@type":"Answer","text":"Yes. RoofCoil Takeoff needs a free RoofCoil account, which you can create on this page in about a minute, and every takeoff you run is saved to your report history. The standing seam panel calculator on this page needs no account at all."}},
   {"@type":"Question","name":"Does the takeoff price the job?","acceptedAnswer":{"@type":"Answer","text":"No. It gives quantities, not prices. Price the panels and trim in RoofCoil's Panel & Trim app, which prices the run from the shop nearest you, or send the takeoff report to a listed fabricator for a quote."}}
  ]}
@@ -201,7 +201,7 @@ html[data-signed-in] .when-out{display:none!important}
 
   <dl class="tk-facts">
     <div><dt>Takes off</dt><dd>Roofs + walls</dd></div>
-    <div><dt>Panel systems</dt><dd>12</dd></div>
+    <div><dt>Panel systems</dt><dd>7</dd></div>
     <div><dt>Trim stock</dt><dd>4 × 10 sheets</dd></div>
     <div><dt>Side by side</dt><dd>5 options</dd></div>
     <div><dt>Cost</dt><dd>Free account</dd></div>
@@ -247,27 +247,22 @@ html[data-signed-in] .when-out{display:none!important}
       <a class="btn when-in" href="https://takeoff.roofcoil.com">Run the whole job →</a>
     </div>
   </div>
-  <p class="tk-note">Clips at 1 per 2 ft of seam, as the takeoff orders them (tighten for your wind zone); flange and nail-strip panels screw 12" on center along the flange instead. Square feet and coil are before waste.</p>
+  <p class="tk-note">Clips at 1 per 2 ft of seam, as the takeoff orders them (tighten for your wind zone); flange panels (FF100) screw 12" on center along the flange instead. Square feet and coil are before waste.</p>
 
   <h2 class="sec" id="coverage">Standing seam coverage by coil width</h2>
-  <p class="tk-p">A roll-formed panel's coverage is the coil width minus what its seams take up. These are the take-ups the takeoff uses: the roll-former makers' published figures for the SS and SSQ profiles and the shop's own for the Ultra Seam (US) profiles. Your machine's tooling sets the real number, so check it before you order coil.</p>
+  <p class="tk-p">A roll-formed panel's coverage is the coil width minus what its seams take up. These are the take-ups the takeoff uses: the roll-former makers' published figures. Your machine's tooling sets the real number, so check it before you order coil.</p>
   <div class="tk-tbl"><table>
     <caption>Finished coverage, inches</caption>
     <tr><th>Profile</th><th>Seam</th><th class="n">Take-up</th><th class="n">16" coil</th><th class="n">21" coil</th><th class="n">24" coil</th></tr>
     <tr class="grp"><td colspan="6">Snap-lock</td></tr>
     <tr><td>SS450</td><td>1.5" snap-lock</td><td class="n">4-1/8"</td><td class="n">11-7/8"</td><td class="n">16-7/8"</td><td class="n">19-7/8"</td></tr>
     <tr><td>SSQ675</td><td>1.75" snap-lock</td><td class="n">6-1/8"</td><td class="n">9-7/8"</td><td class="n">14-7/8"</td><td class="n">17-7/8"</td></tr>
-    <tr><td>US-150LS</td><td>1.5" Lok-Seam</td><td class="n">4-1/2"</td><td class="n">11-1/2"</td><td class="n">16-1/2"</td><td class="n">19-1/2"</td></tr>
-    <tr><td>US-175LS</td><td>1.75" Lok-Seam</td><td class="n">4-3/8"</td><td class="n">11-5/8"</td><td class="n">16-5/8"</td><td class="n">19-5/8"</td></tr>
     <tr class="grp"><td colspan="6">Mechanical seam</td></tr>
     <tr><td>SS100</td><td>1" double-lock</td><td class="n">3"</td><td class="n">13"</td><td class="n">18"</td><td class="n">21"</td></tr>
     <tr><td>SS150</td><td>1.5" mechanical</td><td class="n">4"</td><td class="n">12"</td><td class="n">17"</td><td class="n">20"</td></tr>
     <tr><td>SSQ200</td><td>2" mechanical</td><td class="n">5-13/16"</td><td class="n">10-3/16"</td><td class="n">15-3/16"</td><td class="n">18-3/16"</td></tr>
-    <tr><td>US-150</td><td>1.5" single or double lock</td><td class="n">4-1/2"</td><td class="n">11-1/2"</td><td class="n">16-1/2"</td><td class="n">19-1/2"</td></tr>
-    <tr><td>US-200</td><td>2" mechanical</td><td class="n">6"</td><td class="n">10"</td><td class="n">15"</td><td class="n">18"</td></tr>
     <tr class="grp"><td colspan="6">Flange &amp; exposed fastener</td></tr>
     <tr><td>FF100</td><td>1" snap-lock, slotted flange</td><td class="n">4-1/16"</td><td class="n">11-15/16"</td><td class="n">16-15/16"</td><td class="n">19-15/16"</td></tr>
-    <tr><td>US-100NS</td><td>1" nail strip</td><td class="n">3"</td><td class="n">13"</td><td class="n">18"</td><td class="n">21"</td></tr>
     <tr><td>PBR / R-panel</td><td>Exposed fastener</td><td class="n">—</td><td class="n" colspan="3">36" coverage, factory-formed</td></tr>
   </table></div>
   <p class="tk-note">The same 21" coil covers 16-7/8" as SS450 but 15-3/16" as SSQ200, so the mechanical seam roof needs about 11% more panels. Which seam to run: <a href="/articles/snap-lock-vs-mechanical-seam.html">snap-lock vs mechanical seam</a>. Every profile listed shops roll: <a href="/panels">metal roof panels</a>.</p>
@@ -442,7 +437,7 @@ html[data-signed-in] .when-out{display:none!important}
     <details><summary>How does the wall takeoff handle doors and windows?</summary><p>Enter them by tag or size: 3068 is a 3'-0" by 6'-8" door, 14x14 an overhead door. A panel the full width of a door or overhead door becomes a short piece over it; panels at a window are ordered full length and cut around it on site. Openings come off the net wall area, and each gets its trim: J-trim at window heads, sills and jambs, door and overhead door trim at heads and jambs, and sealant around every opening.</p></details>
     <details><summary>Can it read construction drawings?</summary><p>Not by itself yet. Drop a drawing set on the takeoff and it recognizes it as drawings rather than a measurement report and opens a wall takeoff with the drawings attached; you enter the walls from the elevations. Roofs are read automatically from EagleView Premium report PDFs and EagleView XML data exports.</p></details>
     <details><summary>How many flat sheets does the trim take?</summary><p>It depends on each part's girth, the width of flat metal it is bent from. A 4 x 10 sheet is 48 in. wide, so it gives 48 divided by the girth, rounded down, pieces 10 ft long: a 12 in. girth gives 4 pieces a sheet, a 16 in. girth 3. The roof takeoff draws every trim part with its girth and adds up the 4 x 10 sheets the order takes; wall trim is counted in 10 ft sticks, run by run.</p></details>
-    <details><summary>Which panel profiles does it figure?</summary><p>Twelve: SS450, SSQ675, US-150LS and US-175LS snap-lock; SS100, SS150, SSQ200, US-150 and US-200 mechanical seam; FF100 slotted flange and US-100NS nail strip; and PBR / R-panel at 36 in. coverage. Each carries its seam take-up and clip, so the panel count and the clip order follow the profile you pick.</p></details>
+    <details><summary>Which panel profiles does it figure?</summary><p>Seven: SS450 and SSQ675 snap-lock; SS100, SS150 and SSQ200 mechanical seam; FF100 slotted flange; and PBR / R-panel at 36 in. coverage. Each carries its seam take-up and clip, so the panel count and the clip order follow the profile you pick.</p></details>
     <details><summary>Is the sheet metal takeoff free?</summary><p>Yes. RoofCoil Takeoff needs a free RoofCoil account, which you can <a href="#signup">create on this page</a> in about a minute, and every takeoff you run is saved to your report history. The standing seam panel calculator on this page needs no account at all.</p></details>
     <details><summary>Does the takeoff price the job?</summary><p>No. It gives quantities, not prices. Price the panels and trim in RoofCoil's <a href="/members.html?app=papp">Panel &amp; Trim app</a>, which prices the run from the shop nearest you, or send the takeoff report to a <a href="/suppliers.html">listed fabricator</a> for a quote.</p></details>
   </section>
@@ -486,15 +481,10 @@ html[data-signed-in] .when-out{display:none!important}
   var P = [
     { id: 'ss450', name: 'SS450 · 1.5" snap-lock', up: 4.125, clip: 'SG-114-24-SL', box: 800 },
     { id: 'ssq675', name: 'SSQ675 · 1.75" snap-lock', up: 6.125, clip: 'SG-178-18', box: 500 },
-    { id: 'us150ls', name: 'US-150LS · 1.5" Lok-Seam', up: 4.5, pack: 100 },
-    { id: 'us175ls', name: 'US-175LS · 1.75" Lok-Seam', up: 4.375, pack: 100 },
     { id: 'ss100', name: 'SS100 · 1" double-lock', up: 3, clip: 'FG-100-24', box: 1000 },
     { id: 'ss150', name: 'SS150 · 1.5" mechanical', up: 4, clip: 'FG-158-24', box: 500 },
     { id: 'ssq200', name: 'SSQ200 · 2" mechanical', up: 5.8125, clip: 'FG-218-24', box: 300 },
-    { id: 'us150', name: 'US-150 · 1.5" mechanical', up: 4.5, pack: 100 },
-    { id: 'us200', name: 'US-200 · 2" mechanical', up: 6, pack: 100 },
     { id: 'ff100', name: 'FF100 · 1" slotted flange', up: 4.0625, flange: true },
-    { id: 'us100ns', name: 'US-100NS · 1" nail strip', up: 3, flange: true },
     { id: 'pbr', name: 'PBR / R-panel · 36" coverage', fixed: 36 }
   ];
   var $ = function (id) { return document.getElementById(id); };
@@ -540,7 +530,6 @@ html[data-signed-in] .when-out{display:none!important}
     }
     var clips = Math.ceil(lnft * 0.5);
     if (p.clip) { $('o-fix-h').textContent = 'Clips · ' + p.clip; put('o-fix', n0.format(clips) + '<small>' + Math.ceil(clips / p.box) + ' box of ' + n0.format(p.box) + '</small>'); }
-    else if (p.pack) { $('o-fix-h').textContent = 'Clips'; put('o-fix', n0.format(clips) + '<small>' + Math.ceil(clips / p.pack) + ' packs of 100</small>'); }
     else if (p.flange) { $('o-fix-h').textContent = 'Flange screws'; put('o-fix', n0.format(Math.ceil(lnft) + panels) + '<small>12" o.c. + ends</small>'); }
     else { $('o-fix-h').textContent = 'Screws'; put('o-fix', '—<small>by deck or purlins</small>'); }
     put('o-math',
