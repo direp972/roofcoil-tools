@@ -1,10 +1,12 @@
 {
   "redirects": [
     { "source": "/standing-seam-panels.html", "destination": "/panels", "permanent": true },
-    { "source": "/metal-roof-takeoff.html", "destination": "/metal-roof-takeoff", "permanent": true }
+    { "source": "/metal-roof-takeoff.html", "destination": "/metal-roof-takeoff", "permanent": true },
+    { "source": "/sheet-metal-takeoff.html", "destination": "/sheet-metal-takeoff", "permanent": true }
   ],
   "rewrites": [
     { "source": "/panels", "destination": "/standing-seam-panels.html" },
-    { "source": "/metal-roof-takeoff", "destination": "/metal-roof-takeoff.html" }
+    { "source": "/metal-roof-takeoff", "destination": "/metal-roof-takeoff.html" },
+    { "source": "/sheet-metal-takeoff", "destination": "/sheet-metal-takeoff.html" }
   ]
 }
