@@ -181,7 +181,7 @@ const NAV = (tag) => `<a class="ribbon" href="/get-listed.html"><b>Suppliers &am
   <a class="brand" href="/"><b>Roof<i>Coil</i></b><span>${esc(tag)}</span></a>
   <nav class="nav-links">
     <a href="/">Home</a>
-    <a href="/panels">Panels</a>
+    <a href="/standing-seam-panels.html">Panels</a>
     <a href="/articles/">Resources</a>
     <a href="/suppliers.html">Find a supplier</a>
     <a href="/get-listed.html">Get listed</a>
@@ -191,7 +191,7 @@ const NAV = (tag) => `<a class="ribbon" href="/get-listed.html"><b>Suppliers &am
 </div></header>`;
 const FOOTER = `<footer><div class="f-bot" style="flex-direction:column;gap:10px;align-items:flex-start">
   <nav style="display:flex;flex-wrap:wrap;gap:6px 18px;font-size:12.5px">
-    <a href="/panels" style="color:#CFE0EC;text-decoration:none">Metal roof panels</a>
+    <a href="/standing-seam-panels.html" style="color:#CFE0EC;text-decoration:none">Metal roof panels</a>
     <a href="/sheet-metal-trim.html" style="color:#CFE0EC;text-decoration:none">Sheet metal trim</a>
     <a href="/roll-forming.html" style="color:#CFE0EC;text-decoration:none">On-site roll forming</a>
     <a href="/coil-and-flats.html" style="color:#CFE0EC;text-decoration:none">Coil &amp; flat sheet</a>
@@ -454,7 +454,7 @@ async function staticPages() {
     out.push({ loc, title, desc, lastmod: day(gitDate(path.posix.join("public", rel))), priority });
   };
   for (const f of (await fs.readdir(path.join(ROOT, "public"))).filter((f) => f.endsWith(".html") && !skip.has(f)).sort()) {
-    const loc = f === "home.html" ? `${SITE}/` : f === "standing-seam-panels.html" ? `${SITE}/panels` : f === "metal-roof-takeoff.html" ? `${SITE}/metal-roof-takeoff` : `${SITE}/${f}`;
+    const loc = f === "home.html" ? `${SITE}/` : f === "metal-roof-takeoff.html" ? `${SITE}/metal-roof-takeoff` : `${SITE}/${f}`;
     await add(f, loc, f === "home.html" ? "1.0" : "0.8");
   }
   for (const f of (await fs.readdir(path.join(ROOT, "public", "articles"))).filter((f) => f.endsWith(".html")).sort()) {
@@ -486,7 +486,7 @@ ${line(`${SITE}/`, "Home")}
 ${line(`${SITE}/metal-roof-takeoff`, "Metal roof takeoff")}
 ${line(`${SITE}/suppliers.html`, "Find a supplier")}
 ${line(`${SITE}/get-listed.html`, "Get listed")}
-${line(`${SITE}/panels`, "Metal roof panels")}
+${line(`${SITE}/standing-seam-panels.html`, "Metal roof panels")}
 ${line(`${SITE}/sheet-metal-trim.html`, "Sheet metal trim")}
 ${line(`${SITE}/roll-forming.html`, "On-site roll forming")}
 ${line(`${SITE}/coil-and-flats.html`, "Coil & flat sheet")}
