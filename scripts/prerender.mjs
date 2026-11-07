@@ -103,6 +103,23 @@ const hostOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); 
 const isFinite2 = (n) => typeof n === "number" && Number.isFinite(n);
 const trimTo = (s, n) => (s.length <= n ? s : s.slice(0, n - 1).replace(/\s+\S*$/, "") + "…");
 const titleCaseCity = (s) => s.replace(/\b([a-z])/g, (m) => m.toUpperCase());
+// addressCountry used to be hardcoded "US" while the brand claims North America,
+// so the first Canadian listing would have shipped a factually wrong PostalAddress.
+// The region comes off a free-text city field, so this derives what it can from a
+// state or province and omits the property rather than asserting a country.
+const US_REGIONS = new Set(("AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY PR VI GU AS MP " +
+  "ALABAMA ALASKA ARIZONA ARKANSAS CALIFORNIA COLORADO CONNECTICUT DELAWARE FLORIDA GEORGIA HAWAII IDAHO ILLINOIS INDIANA IOWA KANSAS KENTUCKY LOUISIANA MAINE MARYLAND MASSACHUSETTS MICHIGAN MINNESOTA MISSISSIPPI MISSOURI MONTANA NEBRASKA NEVADA OHIO OKLAHOMA OREGON PENNSYLVANIA TENNESSEE TEXAS UTAH VERMONT VIRGINIA WASHINGTON WISCONSIN WYOMING").split(/\s+/));
+const US_MULTIWORD = new Set(["NEW HAMPSHIRE", "NEW JERSEY", "NEW MEXICO", "NEW YORK", "NORTH CAROLINA", "NORTH DAKOTA", "RHODE ISLAND", "SOUTH CAROLINA", "SOUTH DAKOTA", "WEST VIRGINIA", "DISTRICT OF COLUMBIA", "PUERTO RICO"]);
+const CA_REGIONS = new Set(("AB BC MB NB NL NS NT NU ON PE QC SK YT " +
+  "ALBERTA MANITOBA ONTARIO QUEBEC SASKATCHEWAN NUNAVUT YUKON").split(/\s+/));
+const CA_MULTIWORD = new Set(["BRITISH COLUMBIA", "NEW BRUNSWICK", "NEWFOUNDLAND AND LABRADOR", "NOVA SCOTIA", "PRINCE EDWARD ISLAND", "NORTHWEST TERRITORIES"]);
+function countryOf(region) {
+  const r = String(region ?? "").trim().toUpperCase().replace(/\./g, "");
+  if (!r) return undefined;
+  if (US_REGIONS.has(r) || US_MULTIWORD.has(r)) return "US";
+  if (CA_REGIONS.has(r) || CA_MULTIWORD.has(r)) return "CA";
+  return undefined;
+}
 function splitCity(city) {
   const c = clean(city); const i = c.indexOf(",");
   if (i < 0) return { locality: titleCaseCity(c), region: "" };
@@ -291,7 +308,7 @@ function schemaOf(l) {
     "@type": "LocalBusiness", "@id": `${l.url}#business`, name: l.name, url: l.website || l.url,
     telephone: phoneHref(l.phone) ? phoneHref(l.phone).slice(4) : undefined,
     image: l.photos[0] || l.logo || `${SITE}/og-card.png`,
-    address: (l.address || l.city) ? { "@type": "PostalAddress", streetAddress: l.address || undefined, addressLocality: locality || undefined, addressRegion: region || undefined, addressCountry: "US" } : undefined,
+    address: (l.address || l.city) ? { "@type": "PostalAddress", streetAddress: l.address || undefined, addressLocality: locality || undefined, addressRegion: region || undefined, addressCountry: countryOf(region) } : undefined,
     geo: l.lat != null && l.lng != null ? { "@type": "GeoCoordinates", latitude: l.lat, longitude: l.lng } : undefined,
     hasMap: l.maps || undefined,
     areaServed: l.area || undefined,
@@ -299,7 +316,7 @@ function schemaOf(l) {
     sameAs: l.website ? [l.website] : undefined,
     mainEntityOfPage: l.url,
   };
-  if (l.locs.length > 1) business.location = l.locs.map((x) => { const c = splitCity(x.city); return { "@type": "Place", address: { "@type": "PostalAddress", streetAddress: x.address || undefined, addressLocality: c.locality || undefined, addressRegion: c.region || undefined, addressCountry: "US" }, geo: x.lat != null && x.lng != null ? { "@type": "GeoCoordinates", latitude: x.lat, longitude: x.lng } : undefined }; });
+  if (l.locs.length > 1) business.location = l.locs.map((x) => { const c = splitCity(x.city); return { "@type": "Place", address: { "@type": "PostalAddress", streetAddress: x.address || undefined, addressLocality: c.locality || undefined, addressRegion: c.region || undefined, addressCountry: countryOf(c.region) }, geo: x.lat != null && x.lng != null ? { "@type": "GeoCoordinates", latitude: x.lat, longitude: x.lng } : undefined }; });
   const crumbs = { "@type": "BreadcrumbList", itemListElement: [
     { "@type": "ListItem", position: 1, name: "Home", item: `${SITE}/` },
     { "@type": "ListItem", position: 2, name: "Find a supplier", item: `${SITE}/suppliers.html` },
@@ -437,7 +454,7 @@ function patchDirectory(html, all) {
   if (!marker.test(html)) throw new Error("suppliers.html: #dir container not found");
   html = html.replace(marker, `<div id="dir">\n${cards}\n</div>`);
   const list = { "@context": "https://schema.org", "@type": "ItemList", name: "RoofCoil Supplier & Fabricator Directory", numberOfItems: all.length,
-    itemListElement: all.map((l, i) => { const c = splitCity(l.city); return { "@type": "ListItem", position: i + 1, item: { "@type": "LocalBusiness", "@id": `${l.url}#business`, url: l.url, name: l.name, telephone: phoneHref(l.phone) ? phoneHref(l.phone).slice(4) : undefined, address: l.city ? { "@type": "PostalAddress", streetAddress: l.address || undefined, addressLocality: c.locality || undefined, addressRegion: c.region || undefined, addressCountry: "US" } : undefined, geo: l.lat != null && l.lng != null ? { "@type": "GeoCoordinates", latitude: l.lat, longitude: l.lng } : undefined } }; }) };
+    itemListElement: all.map((l, i) => { const c = splitCity(l.city); return { "@type": "ListItem", position: i + 1, item: { "@type": "LocalBusiness", "@id": `${l.url}#business`, url: l.url, name: l.name, image: l.photos[0] || l.logo || `${SITE}/og-card.png`, description: l.coil_desc || l.fab_desc || undefined, telephone: phoneHref(l.phone) ? phoneHref(l.phone).slice(4) : undefined, address: l.city ? { "@type": "PostalAddress", streetAddress: l.address || undefined, addressLocality: c.locality || undefined, addressRegion: c.region || undefined, addressCountry: countryOf(c.region) } : undefined, geo: l.lat != null && l.lng != null ? { "@type": "GeoCoordinates", latitude: l.lat, longitude: l.lng } : undefined } }; }) };
   const ld = /<script type="application\/ld\+json">[\s\S]*?<\/script>/;
   if (!ld.test(html)) throw new Error("suppliers.html: ItemList JSON-LD not found");
   return html.replace(ld, `<script type="application/ld+json">\n${JSON.stringify(list, (k, v) => (v === undefined ? undefined : v)).replace(/<\//g, "<\\/")}\n</script>`);
