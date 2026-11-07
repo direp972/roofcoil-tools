@@ -213,6 +213,7 @@ const FOOTER = `<footer><div class="f-bot" style="flex-direction:column;gap:10px
     <a href="/gutters.html" style="color:#CFE0EC;text-decoration:none">Roll-formed gutters</a>
     <a href="/roll-forming.html" style="color:#CFE0EC;text-decoration:none">On-site roll forming</a>
     <a href="/coil-and-flats.html" style="color:#CFE0EC;text-decoration:none">Coil &amp; flat sheet</a>
+    <a href="/colors.html" style="color:#CFE0EC;text-decoration:none">Metal roof colors</a>
     <a href="/articles/" style="color:#CFE0EC;text-decoration:none">Resources</a>
     <a href="/suppliers.html" style="color:#CFE0EC;text-decoration:none">Find a supplier</a>
     <a href="/get-listed.html" style="color:#CFE0EC;text-decoration:none">Get listed</a>
@@ -526,6 +527,7 @@ ${line(`${SITE}/sheet-metal-trim.html`, "Sheet metal trim")}
 ${line(`${SITE}/gutters.html`, "Roll-formed gutters")}
 ${line(`${SITE}/roll-forming.html`, "On-site roll forming")}
 ${line(`${SITE}/coil-and-flats.html`, "Coil & flat sheet")}
+${line(`${SITE}/colors.html`, "Metal roof colors")}
 ${line(`${SITE}/members.html`, "Member tools")}
 
 ## Articles
