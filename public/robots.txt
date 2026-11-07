@@ -10,30 +10,26 @@ Disallow: /confirm.html
 Disallow: /api/
 
 # AI assistants and their crawlers are welcome — see /llms.txt for a site map
-# written for them.
+# written for them. These share one group, and the group repeats the Disallow
+# rules above: robots.txt groups are not inherited, so a named crawler obeys
+# only its own group. Listing these agents with Allow alone, as this file did
+# before, silently granted them the account-only paths the * group withholds.
 User-agent: GPTBot
-Allow: /
 User-agent: OAI-SearchBot
-Allow: /
 User-agent: ChatGPT-User
-Allow: /
 User-agent: ClaudeBot
-Allow: /
 User-agent: Claude-User
-Allow: /
 User-agent: Claude-SearchBot
-Allow: /
 User-agent: anthropic-ai
-Allow: /
 User-agent: PerplexityBot
-Allow: /
 User-agent: Perplexity-User
-Allow: /
 User-agent: Google-Extended
-Allow: /
 User-agent: Applebot-Extended
-Allow: /
 User-agent: CCBot
 Allow: /
+Disallow: /directory-admin.html
+Disallow: /manage-listing.html
+Disallow: /confirm.html
+Disallow: /api/
 
 Sitemap: https://www.roofcoil.com/sitemap.xml

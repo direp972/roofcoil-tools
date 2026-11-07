@@ -258,8 +258,8 @@ function cardHtml(l) {
   if (l.fab) paras.push(`<p><b>Fabrication: </b>${esc(l.fab)}</p>`);
   if (l.licensed) paras.push(`<p><b>Licensed in: </b>${esc(l.licensed)}</p>`);
   const contact = [];
-  if (l.website) contact.push(`<a href="${attr(l.website)}" target="_blank" rel="noopener nofollow" style="color:var(--copper);font-weight:600;text-decoration:none">${esc(l.host)}</a>`);
-  if (l.maps) contact.push(`<a href="${attr(l.maps)}" target="_blank" rel="noopener nofollow" style="color:var(--copper);font-weight:600;text-decoration:none">Directions</a>`);
+  if (l.website) contact.push(`<a href="${attr(l.website)}" target="_blank" rel="noopener" style="color:var(--copper);font-weight:600;text-decoration:none">${esc(l.host)}</a>`);
+  if (l.maps) contact.push(`<a href="${attr(l.maps)}" target="_blank" rel="noopener" style="color:var(--copper);font-weight:600;text-decoration:none">Directions</a>`);
   if (l.phone) contact.push(esc(phoneDisplay(l.phone)));
   if (contact.length) paras.push(`<p>${contact.join(" · ")}</p>`);
   const photos = l.photos.length ? `<div class="ph-row">${l.photos.map((u) => `<a href="${attr(u)}" target="_blank" rel="noopener"><img src="${attr(u)}" loading="lazy" alt="Job photo from ${attr(l.name)}"></a>`).join("")}</div>` : "";
@@ -319,9 +319,9 @@ function supplierPage(l, all) {
   const shared = all.filter((o) => o !== l && !nearby.includes(o)).map((o) => ({ o, n: o.abilities.filter((a) => l.abilities.includes(a)).length })).filter((x) => x.n).sort((a, b) => b.n - a.n).slice(0, 4).map((x) => x.o);
   const related = [...nearby, ...shared].slice(0, 4);
   const contactRows = [];
-  if (l.website) contactRows.push(`<p><b>Website: </b><a href="${attr(l.website)}" target="_blank" rel="noopener nofollow" style="color:var(--copper);font-weight:600;text-decoration:none">${esc(l.host)}</a></p>`);
+  if (l.website) contactRows.push(`<p><b>Website: </b><a href="${attr(l.website)}" target="_blank" rel="noopener" style="color:var(--copper);font-weight:600;text-decoration:none">${esc(l.host)}</a></p>`);
   if (l.phone) contactRows.push(`<p><b>Phone: </b>${phoneHref(l.phone) ? `<a href="${attr(phoneHref(l.phone))}" style="color:var(--copper);font-weight:600;text-decoration:none">${esc(phoneDisplay(l.phone))}</a>` : esc(phoneDisplay(l.phone))}</p>`);
-  if (l.maps) contactRows.push(`<p><b>Map: </b><a href="${attr(l.maps)}" target="_blank" rel="noopener nofollow" style="color:var(--copper);font-weight:600;text-decoration:none">Directions on Google Maps</a></p>`);
+  if (l.maps) contactRows.push(`<p><b>Map: </b><a href="${attr(l.maps)}" target="_blank" rel="noopener" style="color:var(--copper);font-weight:600;text-decoration:none">Directions on Google Maps</a></p>`);
   if (l.licensed) contactRows.push(`<p><b>Licensed in: </b>${esc(l.licensed)}</p>`);
   if (l.area) contactRows.push(`<p><b>Service area: </b>${esc(l.area)}</p>`);
   const updated = day(l.updated);
@@ -467,6 +467,23 @@ function sitemapXml(pages, all) {
   const url = (loc, lastmod, priority) => `  <url><loc>${esc(loc)}</loc>${lastmod ? `<lastmod>${lastmod}</lastmod>` : ""}${priority ? `<priority>${priority}</priority>` : ""}</url>`;
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${pages.map((p) => url(p.loc, p.lastmod, p.priority)).join("\n")}\n${all.map((l) => url(l.url, day(l.updated), "0.6")).join("\n")}\n</urlset>\n`;
 }
+const ABILITY_ORDER = [...COIL, ...STANDING_SEAM, ...EXPOSED, ...TRIM, ...GUTTER_PROFILES, ...GUTTER_MATERIALS, ...SERVICES];
+// The directory is searched by ability, so llms.txt carries the index in that
+// direction too: an assistant asked "who rolls 1.75-inch snap-lock near Dallas"
+// can answer from this file without crawling eleven supplier pages. Abilities no
+// listed shop runs yet are left out rather than printed empty.
+function abilityIndex(all) {
+  const byAbility = new Map();
+  for (const l of all) for (const a of l.abilities) { if (!byAbility.has(a)) byAbility.set(a, []); byAbility.get(a).push(l); }
+  const seen = new Set();
+  const rows = [];
+  for (const a of [...ABILITY_ORDER, ...[...byAbility.keys()].sort()]) {
+    if (seen.has(a) || !byAbility.has(a)) continue;
+    seen.add(a);
+    rows.push(`- ${a}: ${byAbility.get(a).map((s) => `[${s.name}](${s.url})${s.city ? ` — ${s.city}` : ""}`).join("; ")}`);
+  }
+  return rows.join("\n");
+}
 function llmsTxt(pages, all) {
   const byLoc = (loc) => pages.find((p) => p.loc === loc);
   const line = (loc, fallback) => { const p = byLoc(loc); return `- [${p ? p.title : fallback}](${loc})${p && p.desc ? ": " + p.desc : ""}`; };
@@ -496,7 +513,10 @@ ${line(`${SITE}/members.html`, "Member tools")}
 ${articles.map((p) => `- [${p.title}](${p.loc})${p.desc ? ": " + p.desc : ""}`).join("\n")}
 
 ## Listed suppliers, fabricators and contractors (${all.length})
-${all.map((l) => `- [${l.name}](${l.url}): ${[l.city, roleOf(l)].filter(Boolean).join(" · ")}. Runs ${l.abilities.slice(0, 8).join(", ")}${l.abilities.length > 8 ? ` and ${l.abilities.length - 8} more` : ""}.${l.colors.length ? ` ${l.colors.length} stock colors.` : ""}${l.locs.length > 1 ? ` Locations: ${l.locs.map((x) => x.city).filter(Boolean).join(", ")}.` : ""}`).join("\n")}
+${all.map((l) => `- [${l.name}](${l.url}): ${[l.city, roleOf(l)].filter(Boolean).join(" · ")}. Runs ${l.abilities.join(", ")}.${l.colors.length ? ` Stock colors: ${l.colors.join(", ")}.` : ""}${l.locs.length > 1 ? ` Locations: ${l.locs.map((x) => x.city).filter(Boolean).join(", ")}.` : ""}`).join("\n")}
+
+## Which listed shops run each ability
+${abilityIndex(all)}
 
 ## Ability taxonomy
 - Standing seam panels: ${STANDING_SEAM.join(", ")}

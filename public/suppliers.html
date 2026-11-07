@@ -503,7 +503,7 @@ function buildCard(l){
     try{
       const u=new URL(raw);
       if(u.protocol==='https:'||u.protocol==='http:'){
-        const a=document.createElement('a');a.href=u.href;a.target='_blank';a.rel='noopener nofollow';
+        const a=document.createElement('a');a.href=u.href;a.target='_blank';a.rel='noopener';
         a.textContent=u.hostname.replace(/^www\./,'');
         a.style.cssText='color:var(--copper);font-weight:600;text-decoration:none';
         contactBits.push(a);
@@ -521,7 +521,7 @@ function buildCard(l){
         ||(h==='goo.gl'&&u.pathname.startsWith('/maps'))
         ||(h==='g.co'&&u.pathname.startsWith('/kgs'));
       if((u.protocol==='https:'||u.protocol==='http:')&&isMaps){
-        const a=document.createElement('a');a.href=u.href;a.target='_blank';a.rel='noopener nofollow';
+        const a=document.createElement('a');a.href=u.href;a.target='_blank';a.rel='noopener';
         a.textContent='Directions';
         a.style.cssText='color:var(--copper);font-weight:600;text-decoration:none';
         contactBits.push(a);
