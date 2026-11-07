@@ -193,6 +193,7 @@ const FOOTER = `<footer><div class="f-bot" style="flex-direction:column;gap:10px
   <nav style="display:flex;flex-wrap:wrap;gap:6px 18px;font-size:12.5px">
     <a href="/standing-seam-panels.html" style="color:#CFE0EC;text-decoration:none">Metal roof panels</a>
     <a href="/sheet-metal-trim.html" style="color:#CFE0EC;text-decoration:none">Sheet metal trim</a>
+    <a href="/gutters.html" style="color:#CFE0EC;text-decoration:none">Roll-formed gutters</a>
     <a href="/roll-forming.html" style="color:#CFE0EC;text-decoration:none">On-site roll forming</a>
     <a href="/coil-and-flats.html" style="color:#CFE0EC;text-decoration:none">Coil &amp; flat sheet</a>
     <a href="/articles/" style="color:#CFE0EC;text-decoration:none">Resources</a>
@@ -505,6 +506,7 @@ ${line(`${SITE}/suppliers.html`, "Find a supplier")}
 ${line(`${SITE}/get-listed.html`, "Get listed")}
 ${line(`${SITE}/standing-seam-panels.html`, "Metal roof panels")}
 ${line(`${SITE}/sheet-metal-trim.html`, "Sheet metal trim")}
+${line(`${SITE}/gutters.html`, "Roll-formed gutters")}
 ${line(`${SITE}/roll-forming.html`, "On-site roll forming")}
 ${line(`${SITE}/coil-and-flats.html`, "Coil & flat sheet")}
 ${line(`${SITE}/members.html`, "Member tools")}

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="220" height="60" viewBox="0 0 220 60" role="img" aria-label="Listed on RoofCoil">
+  <title>Listed on RoofCoil</title>
+  <rect x="0.75" y="0.75" width="218.5" height="58.5" rx="5" fill="#0B1E2C" stroke="#163345" stroke-width="1.5"/>
+  <g fill="#D4AF37">
+    <rect x="15" y="17" width="4" height="26" rx="1"/>
+    <rect x="23" y="17" width="4" height="26" rx="1"/>
+    <rect x="31" y="17" width="4" height="26" rx="1"/>
+  </g>
+  <text x="48" y="25" font-family="Helvetica,Arial,sans-serif" font-size="8.5" font-weight="700" letter-spacing="1.9" fill="#9FB6C6">LISTED ON</text>
+  <text x="48" y="45" font-family="Helvetica,Arial,sans-serif" font-size="20" font-weight="700" letter-spacing="-0.3" fill="#FFFFFF">Roof<tspan fill="#D4AF37">Coil</tspan></text>
+</svg>
