@@ -4,8 +4,8 @@ import * as THREE from "three";
 import { storage, shopStorage } from "./lib/storage";
 import { supabase } from "./lib/supabaseClient";
 import { useAuth } from "./lib/AuthProvider";
-import { scupperSpec, scupperBack, MILEAGE_FREE, MILEAGE_RATE, mileageCharge, coilPriceForWidth, findFabItem, getSellRates, computePrice, sellRate, sellTierFor, DEFAULT_PRICE_LIST, DEFAULT_COIL_WIDTH_SCALE } from "../supabase/functions/_shared/pricing.mjs";
-import { DEFAULT_CATALOG, listedProfiles, resolveCatalog, getColorsForBrand as catalogColorsForBrand, findColor as catalogFindColor, findGauge as catalogFindGauge, findPaint as catalogFindPaint } from "../supabase/functions/_shared/catalog.mjs";
+import { scupperSpec, scupperBack, MILEAGE_FREE, MILEAGE_RATE, mileageCharge, coilPriceForWidth, getSellRates, computePrice, panelPriceParts, panelCoilWidthIn, panelOrderProblem, sellRate, sellTierFor, DEFAULT_PRICE_LIST, DEFAULT_COIL_WIDTH_SCALE } from "../supabase/functions/_shared/pricing.mjs";
+import { DEFAULT_CATALOG, listedProfiles, resolveCatalog, readTakeup, getColorsForBrand as catalogColorsForBrand, findColor as catalogFindColor, findGauge as catalogFindGauge, findPaint as catalogFindPaint } from "../supabase/functions/_shared/catalog.mjs";
 import { loadPlatformCatalog, loadPlatformCatalogRows, invalidatePlatformCatalog, addCatalogItem, setCatalogItemDelisted, setCatalogItemData, loadShopCatalogSelection } from "./lib/catalog";
 
 /* ---------------------------------- tokens ---------------------------------- */
@@ -944,8 +944,9 @@ function computeJobMaterials(items) {
       if (o.flatWidth && o.flatLength) addFlatSheets(o.flatWidth, o.flatLength, +o.quantity || 0, o);
       if (o.coilWidth && o.coilLength) addCoil(o.coilWidth, o.coilLength / 12, o);
     } else if (o.type === "panel") {
-      const takeup = activeCatalog.profiles[o.profile]?.takeup || 0;
-      const coilWidthIn = (+o.width || 0) + takeup;
+      // the coil width the order was priced on (panel orders store it now); older orders
+      // stored only the pan width, so theirs is rebuilt as pan width + the profile's takeup
+      const coilWidthIn = panelCoilWidthIn(o, activeCatalog);
       const feet = ((+o.height || 0) / 12) * (+o.quantity || 0);
       addCoil(coilWidthIn, feet, o);
     } else if (o.type === "trim") {
@@ -3394,6 +3395,7 @@ function CatalogSection({ platform, selection, onChange, theme, shopName }) {
   const [addingProfile, setAddingProfile] = useState(false);
   const [nb, setNb] = useState({ name: "", pvdf: true, smp: true, ga24: true, ga26: true, colors: "" });
   const [np, setNp] = useState({ name: "", code: "", family: "snap", takeup: "", desc: "" });
+  const [takeupDraft, setTakeupDraft] = useState({}); // profile name -> takeup being typed
   const [note, setNote] = useState("");
   const say = (m) => { setNote(m); setTimeout(() => setNote(""), 4000); };
   const isOn = (map, key) => !(map && map[key] === false);
@@ -3422,12 +3424,26 @@ function CatalogSection({ platform, selection, onChange, theme, shopName }) {
     onChange({ ...sel, custom: { ...custom, brands: customBrands.filter((x) => x.name !== name) }, retired: { ...retired, brands: [...(retired.brands || []), b] } });
   };
   const addProfile = () => {
-    const name = np.name.trim(), code = np.code.trim(), takeup = Number(np.takeup);
+    const name = np.name.trim(), code = np.code.trim(), { takeup, problem } = readTakeup(np.takeup);
     if (!name || !code) { say("A profile needs a name and a code (the short code the panel catalog shows, like SS450)."); return; }
     if (platform.profiles[name] || customProfiles.some((q) => q.name === name) || (retired.profiles || []).some((q) => q.name === name)) { say("That profile name is already in the catalog."); return; }
-    if (!Number.isFinite(takeup) || takeup < 0) { say("Takeup is the coil width minus the finished coverage, in inches."); return; }
+    if (problem) { say(problem); return; }
     onChange({ ...sel, custom: { ...custom, profiles: [...customProfiles, { name, code, family: np.family, takeup, desc: np.desc.trim() }] } });
     setNp({ name: "", code: "", family: "snap", takeup: "", desc: "" }); setAddingProfile(false);
+  };
+  // A profile of the shop's own gets its takeup changed in place (the platform's are changed
+  // by platform staff). New estimates use it at once; orders already sent keep their widths.
+  const saveTakeup = (name) => {
+    if (!(name in takeupDraft)) return;
+    const q = customProfiles.find((x) => x.name === name);
+    const typed = takeupDraft[name];
+    setTakeupDraft((d) => { const n = { ...d }; delete n[name]; return n; });
+    if (!q) return;
+    const { takeup, problem } = readTakeup(typed);
+    if (problem) { say(problem); return; }
+    if (takeup === Number(q.takeup)) return;
+    onChange({ ...sel, custom: { ...custom, profiles: customProfiles.map((x) => (x.name === name ? { ...x, takeup } : x)) } });
+    say(`${q.code || name}: takeup is now ${takeup}" — a 21" coil makes a ${+(21 - takeup).toFixed(4)}" pan. Orders already sent keep their widths.`);
   };
   const retireProfile = (name) => {
     const q = customProfiles.find((x) => x.name === name); if (!q) return;
@@ -3520,9 +3536,13 @@ function CatalogSection({ platform, selection, onChange, theme, shopName }) {
       {customProfiles.map((q) => (
         <div key={q.name} style={{ ...row, display: "flex", alignItems: "center", gap: 8 }}>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 12.5, fontWeight: 700, color: theme.text }}>{q.name} <span style={{ ...small, fontWeight: 400 }}>your own · {q.code} · {(PROFILE_FAMILIES.find((f) => f[0] === q.family) || [])[1] || q.family} · takeup {q.takeup}"</span></div>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: theme.text }}>{q.name} <span style={{ ...small, fontWeight: 400 }}>your own · {q.code} · {(PROFILE_FAMILIES.find((f) => f[0] === q.family) || [])[1] || q.family}</span></div>
             {q.desc && <div style={small}>{q.desc}</div>}
           </div>
+          <label style={{ ...small, display: "flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }} title="Coil width minus the finished coverage — Enter or clicking away saves it">Takeup (in)
+            <input type="number" step="0.0625" min={0} value={takeupDraft[q.name] ?? q.takeup} data-testid={`takeup-${q.code || q.name}`}
+              onChange={(e) => setTakeupDraft((d) => ({ ...d, [q.name]: e.target.value }))} onBlur={() => saveTakeup(q.name)} onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); }}
+              style={{ ...input, width: 76, marginTop: 0, padding: 5 }} /></label>
           <button type="button" onClick={() => retireProfile(q.name)} style={btn(false)}>Retire</button>
         </div>
       ))}
@@ -3566,6 +3586,7 @@ function PlatformCatalogSection({ theme, userId, onChanged }) {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
   const [hexDraft, setHexDraft] = useState({});
+  const [takeupDraft, setTakeupDraft] = useState({}); // profile row id -> takeup being typed
   const [adding, setAdding] = useState("");     // "brand" | "profile" | "color:<paint line>"
   const [nb, setNb] = useState({ name: "", rule: "any" });
   const [nc, setNc] = useState({ name: "", hex: "", premium: false });
@@ -3639,11 +3660,26 @@ function PlatformCatalogSection({ theme, userId, onChanged }) {
     write(() => addCatalogItem({ kind: "color", parent_key: pl, key: name, data: { hex, ...(nc.premium ? { premium: true } : {}) }, sort: nextSort("color", pl) }, userId), `${name} added to ${pl}.`)
       .then((ok) => { if (ok) { setNc({ name: "", hex: "", premium: false }); setAdding(""); } });
   };
+  // A profile's takeup, changed in place for every shop (same check as adding a profile).
+  // The pan width every estimate works out from a coil follows it on each page's next
+  // catalog load; orders already sent keep the pan and coil widths they were priced on.
+  const saveTakeup = (r) => {
+    const id = rid(r);
+    if (!(id in takeupDraft)) return;
+    const typed = takeupDraft[id];
+    const clear = () => setTakeupDraft((d) => { const n = { ...d }; delete n[id]; return n; });
+    const { takeup, problem } = readTakeup(typed);
+    if (problem) { say(problem); clear(); return; }
+    if (takeup === Number(r.data?.takeup)) { clear(); return; }
+    write(() => setCatalogItemData(r, { ...(r.data || {}), takeup }, userId),
+      `${r.data?.code || r.key}: takeup is now ${takeup}" for every shop — a 21" coil makes a ${+(21 - takeup).toFixed(4)}" pan. Orders already sent keep their widths.`)
+      .then((ok) => { if (ok) clear(); });
+  };
   const addProfile = () => {
-    const name = np.name.trim(), code = np.code.trim(), takeup = Number(np.takeup);
+    const name = np.name.trim(), code = np.code.trim(), { takeup, problem } = readTakeup(np.takeup);
     if (!name || !code) { say("A profile needs a name (as the pickers show it) and a code (the short code the panel catalog shows, like SS450)."); return; }
     if (exists("profile", "", name)) { say("That profile name is already in the catalog."); return; }
-    if (!Number.isFinite(takeup) || takeup < 0) { say("Takeup is the coil width minus the finished coverage, in inches."); return; }
+    if (problem) { say(problem); return; }
     const data = { code, family: np.family, takeup, desc: np.desc.trim() };
     if (np.vendor.trim()) data.vendor = np.vendor.trim();
     write(() => addCatalogItem({ kind: "profile", parent_key: "", key: name, data, sort: nextSort("profile", "") }, userId), `${name} is in the catalog for every shop.`)
@@ -3766,9 +3802,13 @@ function PlatformCatalogSection({ theme, userId, onChanged }) {
         {of("profile", "").map((q) => (
           <div key={rid(q)} style={{ ...row, display: "flex", alignItems: "center", gap: 8 }}>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={nameStyle(q)}>{q.key}{tag(q)} <span style={{ ...small, fontWeight: 400 }}>{q.data?.code} · {familyLabel(q.data?.family)} · takeup {q.data?.takeup}"{q.data?.vendor ? ` · ${q.data.vendor}` : ""}</span></div>
+              <div style={nameStyle(q)}>{q.key}{tag(q)} <span style={{ ...small, fontWeight: 400 }}>{q.data?.code} · {familyLabel(q.data?.family)}{q.data?.vendor ? ` · ${q.data.vendor}` : ""}</span></div>
               {q.data?.desc && <div style={small}>{q.data.desc}</div>}
             </div>
+            <label style={{ ...small, display: "flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }} title="Coil width minus the finished coverage — Enter or clicking away saves it, for every shop">Takeup (in)
+              <input type="number" step="0.0625" min={0} value={takeupDraft[rid(q)] ?? (q.data?.takeup ?? "")} disabled={busy} data-testid={`platform-takeup-${q.data?.code || q.key}`}
+                onChange={(e) => setTakeupDraft((d) => ({ ...d, [rid(q)]: e.target.value }))} onBlur={() => saveTakeup(q)} onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); }}
+                style={{ ...input, width: 76, marginTop: 0, padding: 5 }} /></label>
             {toggleBtn(q)}
           </div>
         ))}
@@ -4342,8 +4382,6 @@ export default function ShopOrderApp() {
   const [coilWidth, setCoilWidth] = useState(21);
   const [sqftEditing, setSqftEditing] = useState(null);
   const [widthEditing, setWidthEditing] = useState(null);
-  const [coilPricePerFt, setCoilPricePerFt] = useState(2.5);
-  const [fabPricePerFt, setFabPricePerFt] = useState(0);
   const [runLocation, setRunLocation] = useState("Shop");
   const [jobSiteAddress, setJobSiteAddress] = useState("");
   const [jobSiteMiles, setJobSiteMiles] = useState("");
@@ -4360,10 +4398,15 @@ export default function ShopOrderApp() {
   const [catalogUserLoc, setCatalogUserLoc] = useState(null); // {lat,lng} once the contractor shares their location
   const [catalogLocStatus, setCatalogLocStatus] = useState("idle"); // "idle" | "asking" | "denied"
 
-  useEffect(() => {
+  // The pan width follows the coil and the profile's takeup. catalogTick is declared further
+  // down, so the catalog reloading (the live rows arriving, a takeup edited) re-runs this from
+  // an effect there; otherwise the form would send a pan worked out from the old takeup.
+  const derivePanWidth = () => {
     const takeup = activeCatalog.profiles[profile]?.takeup || 0;
     setWidth(Math.max(0, Math.round((coilWidth - takeup) * 100) / 100));
-  }, [coilWidth, profile]);
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(derivePanWidth, [coilWidth, profile]);
   // Clips default to the panel profile being ordered, so "Clips — <profile>" matches the panel.
   useEffect(() => { if (shapeType === "panel") setAccProfile(profile); }, [shapeType, profile]);
   const [points, setPoints] = useState(TRIM_PRESETS["Eave / Drip Edge"]);
@@ -4459,7 +4502,7 @@ export default function ShopOrderApp() {
     if (view !== "color") setColorSheet(false);
     setTrimBoxOpen(false);
     if (view === "color") { setTab("order"); setColorSheet(true); }
-    else if (view === "trim" || view === "panel" || view === "metal") { setTab("order"); setShapeType(view); setOrderStep("details"); }
+    else if (view === "trim" || view === "panel" || view === "metal") { setTab("order"); if (view === "panel") setQuantity(1); setShapeType(view); setOrderStep("details"); }
     // same reset the 3D Parts tile does, so a deep link starts as clean as a tap does
     else if (view === "part3d") { setTab("order"); setAccessories([]); setBox3dReturn(false); setShapeType("part3d"); setOrderStep("details"); }
     else if (view === "box" || view === "commercial") { setTab("order"); setShapeType("trim"); setOrderStep("details"); setRoofBoxKind(view === "commercial" ? "com" : "res"); setRoofBoxOpen(true); }
@@ -4796,23 +4839,6 @@ export default function ShopOrderApp() {
   const coilGateText = coilUnavailable ? "Not available" : "Call for price";
   const coilGateColor = coilUnavailable ? "#B3261E" : AMBER;
 
-  // The panel form's Coil $/LF reference follows the bracket scale for the selected
-  // coil width and finish (scale prices are PVDF; SMP gets the ratio). Still editable.
-  const panelCoilPerFt = () => {
-    if (coilOverMax) return null;
-    const per = coilPriceForWidth(+coilWidth || 0, coilWidthScale);
-    if (per === null) return null;
-    const pvdfM = catalogFindPaint(activeCatalog, "pvdf")?.mult || 1;
-    const m = brand === "Copper" ? 1 : (catalogFindPaint(activeCatalog, paintId) || activeCatalog.paints[0]).mult;
-    return Math.round(per * (m / pvdfM) * 100) / 100;
-  };
-  useEffect(() => {
-    const v = panelCoilPerFt();
-    if (v !== null) setCoilPricePerFt(v);
-    else if (coilOverMax) setCoilPricePerFt("");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [coilWidth, paintId, brand, coilWidthScale]);
-
   const fabBases = shopBases(selectedShop)
     || (FAB_COMPANIES.find((c) => c.name.split(" ")[0].toLowerCase() === fabricatorCo.split(" ")[0].toLowerCase()) || FAB_COMPANIES[0]).bases;
 
@@ -4879,18 +4905,6 @@ export default function ShopOrderApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fabricatorCo]);
 
-  // Fabrication $/LF reference follows the Price List — profile-specific rows
-  // (e.g. FWQ100 Fabrication) beat the generic Panel Fabrication rate.
-  const panelFabPerFt = () => {
-    const fabItem = findFabItem(priceList, profile, sellTier);
-    return fabItem ? sellRate(fabItem, sellTier) : null;
-  };
-  useEffect(() => {
-    const v = panelFabPerFt();
-    if (v !== null) setFabPricePerFt(v);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [priceList, profile]);
-
   // The catalog the selected shop offers: the platform catalog with the shop's selection over
   // it (its own paint lines and profiles, what it switched off). Resolved into the module-level
   // activeCatalog that every picker and estimate reads, then a re-render; the same resolution
@@ -4946,6 +4960,9 @@ export default function ShopOrderApp() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [catalogTick]);
+  // and the pan width again, from the takeup the catalog now holds
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (catalogTick > 0) derivePanWidth(); }, [catalogTick]);
 
   // This account's tier at the selected shop: its own shop_customers row, none meaning retail.
   useEffect(() => {
@@ -5549,14 +5566,19 @@ export default function ShopOrderApp() {
   };
   // brand matters: Copper/G90/Galvalume/Bonderized price from their own rate tables,
   // and submitOrder computes the real order price WITH brand — the estimate must match it.
+  // A panel is one run: Length is every panel end to end and there is no panel count, so its
+  // quantity is always 1 (the shared `quantity` belongs to the trim, metal and 3D forms). The
+  // profile picks the takeup and any profile fabrication row (FWQ100), as on the server.
   const draft = shapeType === "panel"
-    ? { type: "panel", width, height, quantity, gaugeId, paintId, brand, colorName, runLocation, jobSiteMiles }
+    ? { type: "panel", profile, width, height, coilWidth, quantity: 1, gaugeId, paintId, brand, colorName, runLocation, jobSiteMiles }
     : shapeType === "metal"
     ? { type: "metal", flatWidth, flatLength, coilWidth: metalCoilWidth, coilLength: metalCoilLength, quantity, gaugeId, paintId, brand, colorName }
     : shapeType === "part3d"
     ? { type: "part3d", partType, partW, partD, partH, partCapH, partPostH, partOverhang, partShelf, partLeg, capRibs, outletShape, flangeW, flangeD, outletDiameter, outletLength, topTrim, bodyTaper, taperStart, taperLength, flangeTapered, flangeLength, outletRoundTapered, capStyle, scupOutlet, scupRoofMode, scupFlange, scupDeckLeg, scupProj, scupPlateW, scupPlateH, scupBoxW, scupBoxD, scupBoxH, scupDsSize, scupDsLen, quantity, gaugeId, paintId, brand, colorName }
     : { type: "trim", points, quantity, lengthPerPiece, gaugeId, paintId, brand, colorName };
   const estimate = computePrice(draft, priceList, coilWidthScale, sellTier, activeCatalog);
+  // the coil and fabrication rates that estimate is built from, for the panel form to show
+  const panelParts = shapeType === "panel" ? panelPriceParts(draft, priceList, sellTier, activeCatalog) : null;
   const girth = profileGirth(points, hemStart, hemEnd); // legs plus the end folds — the width the shear cuts
   // Qty / sheet width are "" while a field is cleared for retyping — treat that as 0 so
   // this stays numeric (dropWidth.toFixed on "" used to white-screen the whole app).
@@ -5965,7 +5987,7 @@ export default function ShopOrderApp() {
       height: isMetal || isPart3d ? undefined : height,
       flatWidth: isMetal ? flatWidth : undefined,
       flatLength: isMetal ? flatLength : undefined,
-      coilWidth: isMetal ? metalCoilWidth : undefined,
+      coilWidth: isMetal ? metalCoilWidth : shapeType === "panel" ? coilWidth : undefined,
       accessories: !isPart3d && accessories.length > 0 ? accessories : undefined,
       coilLength: isMetal ? metalCoilLength : undefined,
       partType: isPart3d ? partType : undefined,
@@ -6003,7 +6025,7 @@ export default function ShopOrderApp() {
       scupBoxH: isPart3d && partType === "scupper" && scupOutlet === "collector" ? scupBoxH : undefined,
       scupDsSize: isPart3d && partType === "scupper" && scupOutlet === "collector" ? scupDsSize : undefined,
       scupDsLen: isPart3d && partType === "scupper" && scupOutlet === "collector" ? scupDsLen : undefined,
-      quantity,
+      quantity: shapeType === "panel" ? 1 : quantity,
       runLocation: isMetal || isPart3d ? undefined : runLocation,
       jobSiteAddress: !isMetal && !isPart3d && runLocation === "Job Site" ? jobSiteAddress.trim() : "",
       jobSiteMiles: !isMetal && !isPart3d && runLocation === "Job Site" ? (+jobSiteMiles || 0) : undefined,
@@ -6020,6 +6042,11 @@ export default function ShopOrderApp() {
       status: "Pending",
       createdAt: new Date().toISOString(),
     };
+    if (shapeType === "panel") {
+      // the same check submit-order makes, so a refusal reads here before anything is sent
+      const problem = panelOrderProblem(order, activeCatalog);
+      if (problem) { setSubmitting(false); setToast(problem); setTimeout(() => setToast(""), 6000); return; }
+    }
     order.price = computePrice(order, priceList, coilWidthScale, sellTier, activeCatalog);
     const saved = await insertOrders([order]);
     setSubmitting(false);
@@ -6126,7 +6153,7 @@ export default function ShopOrderApp() {
       scupDsSize: isPart3d && partType === "scupper" && scupOutlet === "collector" ? scupDsSize : undefined,
       scupDsLen: isPart3d && partType === "scupper" && scupOutlet === "collector" ? scupDsLen : undefined,
       accessories: !isPart3d && accessories.length > 0 ? accessories : undefined,
-      quantity, gaugeId, paintId, brand, colorName, colorHex: colorObj.hex,
+      quantity: shapeType === "panel" ? 1 : quantity, gaugeId, paintId, brand, colorName, colorHex: colorObj.hex,
     }];
   };
 
@@ -6186,7 +6213,10 @@ export default function ShopOrderApp() {
     // brand then color directly — handleBrandChange would reset the color
     if (p.brand) setBrand(p.brand);
     if (p.colorName) setColorName(p.colorName);
-    if (p.quantity != null) setQuantity(p.quantity);
+    // a panel is one run (its Length is the whole of it); an older panel order's quantity is not
+    // carried into the trim and metal forms either
+    if (kind === "panel") setQuantity(1);
+    else if (p.quantity != null) setQuantity(p.quantity);
     setAccessories(Array.isArray(p.accessories) ? p.accessories : []);
     if (kind === "trim") {
       setPoints(Array.isArray(p.points) ? p.points : []);
@@ -6789,7 +6819,7 @@ export default function ShopOrderApp() {
                 ].map((t) => {
                   const Icon = t.icon;
                   return (
-                    <button key={t.id} data-testid={`tile-${t.id}`} onClick={() => { if (t.kind) { goDetails(() => openRoofBox(t.kind), "trim"); pushNav("kit", { kind: t.kind }); return; } goDetails(() => { if (t.id === "part3d") { setAccessories([]); setBox3dReturn(false); } setShapeType(t.id); }, t.id); }} className="mac-btn"
+                    <button key={t.id} data-testid={`tile-${t.id}`} onClick={() => { if (t.kind) { goDetails(() => openRoofBox(t.kind), "trim"); pushNav("kit", { kind: t.kind }); return; } goDetails(() => { if (t.id === "part3d") { setAccessories([]); setBox3dReturn(false); } if (t.id === "panel") setQuantity(1); setShapeType(t.id); }, t.id); }} className="mac-btn"
                       style={{
                         display: "flex", alignItems: "center", gap: 14, padding: 16, borderRadius: 12, border: `1px solid ${t.accent}`,
                         background: `linear-gradient(180deg, ${t.accent}, ${t.accent}dd)`, color: "#fff", cursor: "pointer", textAlign: "left",
@@ -7571,7 +7601,7 @@ export default function ShopOrderApp() {
 
                 <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
                   <label style={{ flex: 1, fontSize: 11, color: theme.textSecondary }}>
-                    Length of Panel(s) (ft)
+                    Total Length, All Panels (ft)
                     <input type="number" min={0.1} step="0.1" value={height === "" ? "" : +(height / 12).toFixed(2)}
                       onChange={(e) => setHeight(e.target.value === "" ? "" : Math.max(0, +e.target.value * 12))}
                       onBlur={(e) => { if (e.target.value === "") setHeight(853.08); }}
@@ -7629,32 +7659,34 @@ export default function ShopOrderApp() {
                 </div>
 
                 <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
-                  {/* the shop's $/LF rates are pricing too — a demo visitor sees the same dash as the total */}
+                  {/* the shop's $/LF rates are pricing too — a demo visitor sees the same dash as the total.
+                      The two rates are what the total is built from, shown for reference; Total Price is
+                      computePrice, the same number as the Estimated total and the price the server stores. */}
                   <label style={{ flex: 1, fontSize: 11, color: theme.textSecondary }}>
                     Coil $/LF
                     {coilOverMax ? (
                       <div className="mono" style={{ width: "100%", padding: 8, marginTop: 4, border: `1px solid ${coilGateColor}`, borderRadius: 6, fontSize: 13, background: theme.highlight, boxSizing: "border-box", color: coilGateColor, fontWeight: 700 }}>{coilGateText}</div>
                     ) : isDemo ? signUpBox() : (
-                      <input type="number" min={0} step="0.01" value={coilPricePerFt}
-                        onChange={(e) => setCoilPricePerFt(e.target.value === "" ? "" : Math.max(0, +e.target.value))}
-                        onBlur={(e) => { if (e.target.value === "") setCoilPricePerFt(panelCoilPerFt() ?? 2.5); }}
-                        className="mono" style={{ width: "100%", padding: 8, marginTop: 4, border: `1px solid ${theme.border}`, borderRadius: 6, fontSize: 14, boxSizing: "border-box" }} />
+                      <div className="mono" data-testid="panel-coil-rate" title={`${+panelParts.coilIn.toFixed(3)}" of coil per foot of panel, takeup included`}
+                        style={{ width: "100%", padding: 8, marginTop: 4, border: `1px dashed ${theme.border}`, borderRadius: 6, fontSize: 14, boxSizing: "border-box", color: theme.textSecondary }}>
+                        {priceText(panelParts.coilPerFt)}
+                      </div>
                     )}
                   </label>
                   <label style={{ flex: 1, fontSize: 11, color: theme.textSecondary }}>
                     Fabrication $/LF
                     {isDemo ? signUpBox() : (
-                      <input type="number" min={0} step="0.01" value={fabPricePerFt}
-                        onChange={(e) => setFabPricePerFt(e.target.value === "" ? "" : Math.max(0, +e.target.value))}
-                        onBlur={(e) => { if (e.target.value === "") setFabPricePerFt(panelFabPerFt() ?? 0); }}
-                        className="mono" style={{ width: "100%", padding: 8, marginTop: 4, border: `1px solid ${theme.border}`, borderRadius: 6, fontSize: 14, boxSizing: "border-box" }} />
+                      <div className="mono" data-testid="panel-fab-rate"
+                        style={{ width: "100%", padding: 8, marginTop: 4, border: `1px dashed ${theme.border}`, borderRadius: 6, fontSize: 14, boxSizing: "border-box", color: theme.textSecondary }}>
+                        {priceText(panelParts.fabPerFt)}
+                      </div>
                     )}
                   </label>
                   <label style={{ flex: 1, fontSize: 11, color: theme.textSecondary }}>
                     Total Price
                     {isDemo && !coilOverMax ? signUpBox() : (
-                      <div className="mono" style={{ width: "100%", padding: 8, marginTop: 4, border: `1px solid ${coilOverMax ? coilGateColor : theme.border}`, borderRadius: 6, fontSize: coilOverMax ? 13 : 14, background: theme.highlight, boxSizing: "border-box", color: coilOverMax ? coilGateColor : theme.text, fontWeight: coilOverMax ? 700 : 600 }}>
-                        {coilOverMax ? coilGateText : priceText(((+coilPricePerFt || 0) + (+fabPricePerFt || 0)) * ((+height || 0) / 12))}
+                      <div className="mono" data-testid="panel-total" style={{ width: "100%", padding: 8, marginTop: 4, border: `1px solid ${coilOverMax ? coilGateColor : theme.border}`, borderRadius: 6, fontSize: coilOverMax ? 13 : 14, background: theme.highlight, boxSizing: "border-box", color: coilOverMax ? coilGateColor : theme.text, fontWeight: coilOverMax ? 700 : 600 }}>
+                        {coilOverMax ? coilGateText : priceText(estimate)}
                       </div>
                     )}
                   </label>
@@ -7664,9 +7696,9 @@ export default function ShopOrderApp() {
                     {coilUnavailable ? 'Coil over 48" isn\'t available — 48" is the widest we can run.' : 'Coil over 24" — call the shop for pricing on wide panels.'}
                   </div>
                 )}
-                {!isDemo && (
-                  <div style={{ fontSize: 10, color: theme.textSecondary, marginTop: 4 }}>
-                    Fabrication minimum: $200 shop-rolled · $600 rolled on site — applied automatically in the order estimate.
+                {!isDemo && !coilOverMax && (
+                  <div data-testid="panel-rate-note" style={{ fontSize: 10, color: theme.textSecondary, marginTop: 4 }}>
+                    Coil and fabrication are per foot of panel, for reference — coil is the full {+panelParts.coilIn.toFixed(3)}" coil, takeup included. Total Price is what the order costs: those rates × the length, the fabrication minimum ($200 shop-rolled · $600 on site) when it's more, any premium-color or mileage charge, and a $15 order charge.
                   </div>
                 )}
 
@@ -9436,7 +9468,11 @@ export default function ShopOrderApp() {
                               </div>
                               <div style={{ fontSize: 11.5, color: theme.text, marginTop: 2 }}>
                                 {o.type === "panel" ? (
-                                  <>Qty {o.quantity} × {o.width}" panel, {formatFeetInches(o.height)} long — {o.profile}</>
+                                  // A panel order is one run: Length is every panel end to end. Orders sent
+                                  // before that was fixed carry a quantity, and were priced and pulled by it.
+                                  +o.quantity === 1
+                                    ? <>{o.width}" panel from {+panelCoilWidthIn(o, activeCatalog).toFixed(3)}" coil, {formatFeetInches(o.height)} total length — {o.profile}</>
+                                    : <>Qty {o.quantity} × {o.width}" panel, {formatFeetInches(o.height)} long — {o.profile}</>
                                 ) : (
                                   <>
                                     {o.type === "metal"

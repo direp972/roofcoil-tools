@@ -247,7 +247,11 @@ sheet over the chooser.
   the row itself and replies with the real price. Once the build that calls it is live,
   apply `supabase/migrations/20261017200506_orders_server_priced.sql`, which drops the
   browser's insert right on `orders`, so a tampered page can't send a price of its own.
-  `node scripts/pricing-check.mjs` checks the tier math against the seed price list.
+  `node scripts/pricing-check.mjs` checks the tier math against the seed price list, and
+  the panel math: a panel order is one run (quantity 1, Length is the whole of it), its coil
+  is billed on the coil fed (coil width × length, takeup included), fabrication on the
+  Price List's $/LF, and `submit-order` refuses a pan width that isn't the coil minus the
+  profile's takeup. CI runs it before the build.
 - The first staff member is added by SQL (step 7). After that, platform staff grant or
   revoke platform admin with the **Platform** button in the **Customer Pricing Tiers**
   panel, and a shop's owners give their own people the shop's backend with **Admin**;

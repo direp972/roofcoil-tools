@@ -191,10 +191,84 @@ export function getSellRates(gaugeId, brand, priceList, profile, tier, catalog =
 
   const coilWidthIn = coilItem?.coverageWidth || 12;
   const coilSqft = coilItem ? sellRate(coilItem, tier) / (coilWidthIn / 12) : fallback.coilSqft;
-  const fabSqft = fabItem ? sellRate(fabItem, tier) / (coilWidthIn / 12) : 0;
+  // fabFt is the row as listed, $ per linear foot of panel — what panels are charged.
+  // fabSqft (the same rate spread over the coil row's width) is kept for older callers.
+  const fabFt = fabItem ? sellRate(fabItem, tier) : 0;
+  const fabSqft = fabFt / (coilWidthIn / 12);
   const panelSqft = coilSqft + fabSqft;
   const trimFt = trimItem ? sellRate(trimItem, tier) : fallback.trimFt;
-  return { coilSqft, panelSqft, fabSqft, trimFt };
+  return { coilSqft, panelSqft, fabSqft, fabFt, trimFt };
+}
+
+/* ------------------------------------- panels ------------------------------------- */
+// A panel order is one run of one profile: `width` is the finished pan width, `height` the
+// whole length of panel in inches (every panel in the order end to end), `quantity` is 1,
+// and `coilWidth` the coil it is rolled from. The panel calculator has no panel count: its
+// Length box is the total run (the default, 853.08", is 100 finished sq ft at a 16.88" pan),
+// so an order of any other quantity would bill a multiple of what the form showed.
+export const PANEL_MAX_COIL_IN = 24; // wider coil is quoted by the shop, not priced online
+
+// The coil a panel order is rolled from, in inches: the coil width the order carries (panel
+// orders store it from this release on), else the pan width plus the profile's takeup, for
+// orders written before that.
+export function panelCoilWidthIn(order, catalog = DEFAULT_CATALOG) {
+  const stored = Number(order?.coilWidth);
+  if (Number.isFinite(stored) && stored > 0) return stored;
+  const takeup = Number(catalog?.profiles?.[order?.profile]?.takeup) || 0;
+  return (Number(order?.width) || 0) + takeup;
+}
+
+// The pieces of a panel price, so the panel calculator shows the rates the total is built
+// from and computePrice adds up exactly the same numbers.
+//   Coil: the metal fed through the roll former — coil width × length, takeup included —
+//   at the Price List coil rate for the gauge, times the paint multiplier. (It used to be
+//   the pan's coverage × length, so the takeup's metal was never charged: a 21" coil formed
+//   to a 17" FF100 pan billed 17" of metal.)
+//   Fabrication: the Price List's fabrication row is dollars per linear foot of panel, and
+//   that is what is charged — not spread over the coil row's width and not marked up for
+//   paint, which is metal, not roll-forming.
+export function panelPriceParts(order, priceList, tier, catalog = DEFAULT_CATALOG) {
+  const rates = getSellRates(order.gaugeId, order.brand, priceList, order.profile, tier, catalog);
+  const paint = order.brand === "Copper" ? { mult: 1 } : (findPaint(catalog, order.paintId) || catalog.paints[0]);
+  const colorObj = findColor(catalog, order.colorName, order.brand, order.paintId);
+  const premiumMult = colorObj?.premium ? 1.12 : 1;
+  const coilIn = panelCoilWidthIn(order, catalog);
+  const runFt = (order.height / 12) * order.quantity;           // feet of panel, and of coil
+  const coilPerFt = rates.coilSqft * (coilIn / 12) * paint.mult; // $ per foot of coil fed
+  const fabPerFt = rates.fabFt || 0;                             // $ per foot of panel
+  const coilCost = coilPerFt * runFt;
+  const fabCost = fabPerFt * runFt;
+  // Fabrication minimums: hauling the roll former to a job site floors the fabrication
+  // charge at $600; shop-rolled runs floor at $200.
+  const fabMin = order.runLocation === "Job Site" ? 600 : 200;
+  // $2/mile one way past 40 miles from the nearest roll-forming base
+  const mileage = order.runLocation === "Job Site" ? mileageCharge(order.jobSiteMiles) : 0;
+  const base = coilCost + Math.max(fabCost, fabMin) + mileage;
+  return { coilIn, runFt, coilPerFt, fabPerFt, coilCost, fabCost, fabMin, mileage, premiumMult, total: Math.max(15, base * premiumMult + 15) };
+}
+
+// Why a panel order can't be priced as sent, in words for the customer, or null when it can.
+// submit-order refuses a panel order this returns a reason for, and the app checks the same
+// before sending. The takeup comes from the catalog passed in — the live one on both sides —
+// so a pan width worked out from a stale takeup is caught here instead of priced.
+export function panelOrderProblem(order, catalog = DEFAULT_CATALOG) {
+  const info = catalog?.profiles?.[order?.profile];
+  if (!info) return "Pick a panel profile.";
+  if (order.quantity !== 1) return "A panel order is one length: the whole run of panel goes in Length. Reload the page and send it again.";
+  const num = (v) => typeof v === "number" && Number.isFinite(v);
+  if (!num(order.height) || order.height <= 0) return "Add the length of panel.";
+  if (!num(order.width) || order.width <= 0 || order.width > 48) return 'The pan width has to be more than 0" and no more than 48".';
+  const takeup = Number(info.takeup) || 0;
+  const code = info.code || order.profile;
+  if (order.coilWidth != null) {
+    if (!num(order.coilWidth) || order.coilWidth <= 0) return "Add the coil width.";
+    const pan = order.coilWidth - takeup;
+    if (Math.abs(order.width - pan) > 0.01) {
+      return `A ${+order.coilWidth.toFixed(3)}" coil makes a ${+pan.toFixed(3)}" ${code} pan, not ${+order.width.toFixed(3)}". Reload the page and send it again.`;
+    }
+  }
+  if (panelCoilWidthIn(order, catalog) > PANEL_MAX_COIL_IN) return `Coil over ${PANEL_MAX_COIL_IN}" can't be priced online — call the shop and we'll quote it.`;
+  return null;
 }
 
 export function computePrice(order, priceList, coilWidthScale, tier, catalog = DEFAULT_CATALOG) {
@@ -270,16 +344,7 @@ export function computePrice(order, priceList, coilWidthScale, tier, catalog = D
     const base = sqft * rates.coilSqft * paint.mult * order.quantity + formingFee * order.quantity;
     return Math.max(20, base * premiumMult + 20);
   } else if (order.type === "panel") {
-    const sqft = (order.width * order.height) / 144;
-    const coilCost = sqft * rates.coilSqft * paint.mult * order.quantity;
-    const fabCost = sqft * (rates.fabSqft || 0) * paint.mult * order.quantity;
-    // Fabrication minimums: hauling the roll former to a job site floors the
-    // fabrication charge at $600; shop-rolled runs floor at $150.
-    const fabMin = order.runLocation === "Job Site" ? 600 : 200;
-    // $2/mile one way past 40 miles from the nearest roll-forming base
-    const mileage = order.runLocation === "Job Site" ? mileageCharge(order.jobSiteMiles) : 0;
-    const base = coilCost + Math.max(fabCost, fabMin) + mileage;
-    return Math.max(15, base * premiumMult + 15);
+    return panelPriceParts(order, priceList, tier, catalog).total;
   } else {
     const points = order.points || [];
     const bends = Math.max(0, points.length - 2);

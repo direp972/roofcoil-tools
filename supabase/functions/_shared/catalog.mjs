@@ -316,6 +316,15 @@ export const profileInfo = (catalog, profile) => catalog.profiles[profile] || nu
 export const profileFamily = (catalog, profile) => catalog.profiles[profile]?.family || "mech";
 export const clipSpecForProfile = (catalog, profile) => catalog.clips[catalog.profiles[profile]?.code] || null;
 
+// A profile's takeup as typed into a catalog editor (adding a profile or changing one):
+// { takeup } when it is a usable number of inches, or { problem } in words for shop staff.
+// Blank is refused rather than read as 0 — a 0 takeup makes the pan as wide as the coil.
+export function readTakeup(v) {
+  const t = typeof v === "number" ? v : String(v ?? "").trim() === "" ? NaN : Number(v);
+  if (!Number.isFinite(t) || t < 0) return { problem: "Takeup is the coil width minus the finished coverage, in inches." };
+  return { takeup: t };
+}
+
 /* ------------------------------------ rows and back ------------------------------------ */
 // The platform table (public.catalog_items) holds this same catalog as rows: one per brand,
 // bare metal, color, gauge, paint, profile, clip and accessory, with parent_key tying a

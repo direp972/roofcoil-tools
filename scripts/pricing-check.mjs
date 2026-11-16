@@ -1,8 +1,9 @@
-// Checks that estimates follow the customer's assigned tier, using the seed Price List.
+// Checks that estimates follow the customer's assigned tier, using the seed Price List, and
+// that a panel is priced on the coil it is rolled from, as one run, with the server's checks.
 // Run: node scripts/pricing-check.mjs   (exits non-zero on the first failing check)
 import assert from "node:assert/strict";
-import { computePrice, getSellRates, sellTierFor, sellRate, DEFAULT_PRICE_LIST, DEFAULT_COIL_WIDTH_SCALE } from "../supabase/functions/_shared/pricing.mjs";
-import { DEFAULT_CATALOG, findGauge, findColor, findPaint, listedProfiles, clipSpecForProfile, catalogToRows, catalogFromRows, isUsableCatalog, resolveCatalog, isOffered, getColorsForBrand } from "../supabase/functions/_shared/catalog.mjs";
+import { computePrice, getSellRates, sellTierFor, sellRate, panelPriceParts, panelCoilWidthIn, panelOrderProblem, PANEL_MAX_COIL_IN, DEFAULT_PRICE_LIST, DEFAULT_COIL_WIDTH_SCALE } from "../supabase/functions/_shared/pricing.mjs";
+import { DEFAULT_CATALOG, findGauge, findColor, findPaint, listedProfiles, clipSpecForProfile, catalogToRows, catalogFromRows, isUsableCatalog, resolveCatalog, isOffered, getColorsForBrand, readTakeup } from "../supabase/functions/_shared/catalog.mjs";
 import "../public/catalog-colors.js"; // the public pages' color index (globalThis.rcCatalogColorsFromRows)
 
 const close = (a, b, msg) => assert.ok(Math.abs(a - b) < 1e-9, `${msg}: got ${a}, wanted ${b}`);
@@ -37,6 +38,7 @@ for (const tier of ["tier1", "tier2", "greenleaf"]) {
   const row = (name) => DEFAULT_PRICE_LIST.find((p) => p.name === name)[tier];
   close(r.coilSqft, row("24 Gauge Coil (per linear ft)") / (16 / 12), `coil $/sqft ${tier}`);
   close(r.fabSqft, row("Panel Fabrication (per linear ft)") / (16 / 12), `fab $/sqft ${tier}`);
+  close(r.fabFt, row("Panel Fabrication (per linear ft)"), `fab $/LF ${tier} is the row as listed`);
 }
 assert.ok(price(panel, "greenleaf") < price(panel, "tier1") && price(panel, "tier1") < price(panel, "tier2"), "panel tiers ordered greenleaf < tier1 < tier2");
 
@@ -73,6 +75,71 @@ assert.ok(listed.includes('SS450 – 1.5" Snap-Lock') && !listed.includes("BB750
 assert.ok(DEFAULT_CATALOG.profiles["BB750 – Board and Batten"], "but still resolve for old orders");
 assert.equal(clipSpecForProfile(DEFAULT_CATALOG, 'SS450 – 1.5" Snap-Lock').code, "SG-114-24-SL", "clip spec by profile");
 assert.equal(clipSpecForProfile(DEFAULT_CATALOG, 'FWQ100 – 1" Flush Wall / Soffit'), null, "profiles without clips");
+
+// ---------------------------------------------------------------------------------------
+// Panels. Seed tier2: 24 ga coil $4.55/LF at the row's 16" Coil Size = $3.4125 per sq ft of
+// coil; Panel Fabrication $1.15 per linear ft; PVDF ×1.15. A panel order is one run
+// (quantity 1): height is the whole length, coilWidth the coil it is rolled from.
+const FF100 = 'FF100 – 1" Snap-Lock, Slotted Flange', SS450 = 'SS450 – 1.5" Snap-Lock', FWQ100 = 'FWQ100 – 1" Flush Wall / Soffit';
+const run = (o) => ({ type: "panel", quantity: 1, gaugeId: "24ga", paintId: "pvdf", brand: "Fortified Metal", colorName: "Regal White", runLocation: "Shop", ...o });
+const coilPerFt21 = 3.4125 * (21 / 12) * 1.15; // $6.8677 per foot of 21" PVDF coil
+
+// The panel form's default order: 853.08" (71.09 ft), 100 finished sq ft at a 16.88" pan.
+// FF100 from a 21" coil is a 17" pan: 71.09 ft of 21" coil, fabrication under the $200 floor.
+const ffDefault = run({ profile: FF100, width: 17, coilWidth: 21, height: 853.08 });
+close(price(ffDefault, "tier2"), coilPerFt21 * 71.09 + 200 + 15, "FF100 default order: 21\" of coil per foot, fab minimum, $15");
+assert.equal(Math.round(price(ffDefault, "tier2") * 100) / 100, 703.22, "FF100 default order is $703.22");
+
+// Coil is billed on the coil fed, takeup included: the same 21" coil run the same length
+// costs the same whatever pan it is formed into (both use the generic fabrication row).
+const ssDefault = run({ profile: SS450, width: 16.88, coilWidth: 21, height: 853.08 });
+close(price(ssDefault, "tier2"), price(ffDefault, "tier2"), "SS450 and FF100 from the same 21\" coil price the same");
+const p580 = panelPriceParts(run({ profile: FF100, width: 17, coilWidth: 21, height: 6960 }), DEFAULT_PRICE_LIST, "tier2");
+close(p580.runFt, 580, "580 ft of panel");
+close(p580.coilCost, coilPerFt21 * 580, "coil: 580 ft × 21\" of coil");
+close(p580.fabCost, 580 * 1.15, "fabrication: $1.15 per foot of panel, no width or paint factor");
+close(p580.total, p580.coilCost + p580.fabCost + 15, "the parts add up to the price");
+close(computePrice(run({ profile: FF100, width: 17, coilWidth: 21, height: 6960 }), DEFAULT_PRICE_LIST, DEFAULT_COIL_WIDTH_SCALE, "tier2"), p580.total, "computePrice is panelPriceParts' total");
+const smp580 = panelPriceParts(run({ profile: FF100, width: 17, coilWidth: 21, height: 6960, paintId: "smp" }), DEFAULT_PRICE_LIST, "tier2");
+close(p580.total - smp580.total, 3.4125 * (21 / 12) * (1.15 - 1) * 580, "PVDF and SMP differ by the paint on the coil only");
+close(smp580.fabCost, p580.fabCost, "fabrication does not change with the paint");
+close(panelPriceParts(run({ profile: FWQ100, width: 17, coilWidth: 21, height: 6960 }), DEFAULT_PRICE_LIST, "tier2").fabPerFt, 2.00, "FWQ100 uses its own fabrication row");
+close(panelPriceParts(run({ profile: FF100, width: 17, coilWidth: 21, height: 240, runLocation: "Job Site", jobSiteMiles: 50 }), DEFAULT_PRICE_LIST, "tier2").total,
+  coilPerFt21 * 20 + 600 + 20 + 15, "job site: $600 fabrication floor and $2/mile past 40");
+close(price(run({ profile: FF100, width: 17, coilWidth: 21, height: 853.08, colorName: "Burnished Slate" }), "tier2"), (coilPerFt21 * 71.09 + 200) * 1.12 + 15, "premium color ×1.12 on the order before the $15");
+
+// The coil width: the order's own when it carries one; otherwise pan width + the profile's
+// takeup from the catalog passed in (orders sent before coil widths were stored).
+assert.equal(panelCoilWidthIn({ profile: FF100, width: 17, coilWidth: 21 }), 21, "stored coil width");
+assert.equal(panelCoilWidthIn({ profile: FF100, width: 17 }), 21, "FF100: 17\" pan + 4\" takeup");
+close(panelCoilWidthIn({ profile: SS450, width: 16.88 }), 21.005, "an old SS450 order rebuilt from its rounded pan width");
+close(price(run({ profile: FF100, width: 17, height: 853.08 }), "tier2"), price(ffDefault, "tier2"), "no coil width: the catalog's takeup gives the same 21\"");
+const staleRows = catalogToRows(DEFAULT_CATALOG).map((r) => (r.kind === "profile" && r.key === FF100 ? { ...r, data: { ...r.data, takeup: 4.0625 } } : r));
+const stale = catalogFromRows(staleRows); // the live row as it stood before the FF100 update
+close(panelCoilWidthIn({ profile: FF100, width: 17 }, stale), 21.0625, "the takeup comes from the catalog passed in");
+
+// The server's check (submit-order) — the app runs the same one before sending.
+assert.equal(panelOrderProblem(ffDefault), null, "a good FF100 order passes");
+assert.equal(panelOrderProblem(ssDefault), null, "a good SS450 order passes (16.88 is 21 − 4.125 to the cent)");
+assert.equal(panelOrderProblem(run({ profile: FF100, width: 17, height: 853.08 })), null, "an order without a coil width passes on the catalog's takeup");
+assert.match(panelOrderProblem({ ...ffDefault, quantity: 4 }), /one length/, "a panel order of quantity 4 is refused");
+assert.match(panelOrderProblem({ ...ffDefault, quantity: "1" }), /one length/, "quantity has to be the number 1");
+assert.match(panelOrderProblem({ ...ffDefault, width: 1 }), /21" coil makes a 17" FF100 pan, not 1"/, "a pan that doesn't match its coil is refused");
+assert.match(panelOrderProblem(ffDefault, stale), /makes a 16.938" FF100 pan, not 17"/, "a pan worked out from a different takeup is refused");
+assert.equal(panelOrderProblem({ ...ffDefault, width: 16.94 }, stale), null, "and the pan that takeup gives passes");
+assert.match(panelOrderProblem({ ...ffDefault, width: 0, coilWidth: undefined }), /pan width/, "no pan width");
+assert.match(panelOrderProblem({ ...ffDefault, width: 49, coilWidth: undefined }), /pan width/, "a pan over 48\"");
+assert.match(panelOrderProblem({ ...ffDefault, width: 30, coilWidth: 34 }), new RegExp(`over ${PANEL_MAX_COIL_IN}"`), "coil over 24\" is quoted by the shop");
+assert.match(panelOrderProblem({ ...ffDefault, width: 25, coilWidth: undefined }), /over 24"/, "and so is a pan whose coil works out over 24\"");
+assert.match(panelOrderProblem({ ...ffDefault, height: 0 }), /length/, "no length");
+assert.match(panelOrderProblem({ ...ffDefault, coilWidth: "21" }), /coil width/, "a coil width that isn't a number");
+assert.match(panelOrderProblem({ ...ffDefault, profile: undefined }), /profile/, "no profile");
+
+// The catalog editors' takeup check (adding a profile or changing one).
+assert.equal(readTakeup("4").takeup, 4, "typed 4");
+assert.equal(readTakeup(4.0625).takeup, 4.0625, "a number");
+assert.equal(readTakeup("0").takeup, 0, "zero is allowed, as adding a profile always allowed it");
+for (const bad of ["", "  ", "-1", "abc", null, undefined]) assert.ok(readTakeup(bad).problem, `takeup ${JSON.stringify(bad)} is refused`);
 
 // The platform table holds the catalog as rows: writing the default out and reading it back
 // gives the default again (plus the all* maps, which equal the offer when nothing is
