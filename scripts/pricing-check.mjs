@@ -2,7 +2,8 @@
 // that a panel is priced on the coil it is rolled from, as one run, with the server's checks.
 // Run: node scripts/pricing-check.mjs   (exits non-zero on the first failing check)
 import assert from "node:assert/strict";
-import { computePrice, getSellRates, sellTierFor, sellRate, panelPriceParts, panelCoilWidthIn, panelOrderProblem, PANEL_MAX_COIL_IN, DEFAULT_PRICE_LIST, DEFAULT_COIL_WIDTH_SCALE } from "../supabase/functions/_shared/pricing.mjs";
+import { readFileSync } from "node:fs";
+import { computePrice, getSellRates, sellTierFor, sellRate, panelPriceParts, panelCoilWidthIn, panelOrderProblem, panelOrderFields, panelPanForCoil, panelCoilForPan, panelRunText, orderAmountText, panelReorderNote, feetInches, PANEL_MAX_COIL_IN, DEFAULT_PRICE_LIST, DEFAULT_COIL_WIDTH_SCALE } from "../supabase/functions/_shared/pricing.mjs";
 import { DEFAULT_CATALOG, findGauge, findColor, findPaint, listedProfiles, clipSpecForProfile, catalogToRows, catalogFromRows, isUsableCatalog, resolveCatalog, isOffered, getColorsForBrand, readTakeup } from "../supabase/functions/_shared/catalog.mjs";
 import "../public/catalog-colors.js"; // the public pages' color index (globalThis.rcCatalogColorsFromRows)
 
@@ -134,6 +135,130 @@ assert.match(panelOrderProblem({ ...ffDefault, width: 25, coilWidth: undefined }
 assert.match(panelOrderProblem({ ...ffDefault, height: 0 }), /length/, "no length");
 assert.match(panelOrderProblem({ ...ffDefault, coilWidth: "21" }), /coil width/, "a coil width that isn't a number");
 assert.match(panelOrderProblem({ ...ffDefault, profile: undefined }), /profile/, "no profile");
+
+// Which width the metal is billed on follows how its rate is listed. A Price List coil row
+// ($/LF at its Coil Size) and a Price List copper row ($ per sq ft of copper) are rates for
+// the metal, billed on the coil fed. Galvalume, Bonderized and G90 have no Price List rows:
+// they price from the catalog's gauge rate, which the catalog lists per sq ft of finished
+// panel (Platform → catalog: "fallback $3.45/sq ft panel"), so a panel bills it on the pan,
+// as it always did — the same price as before the coil-fed change, at quantity 1.
+const SSQ200 = 'SSQ200 – 2" Mechanical Seam';
+const bare = (brand, colorName, o) => run({ brand, colorName, gaugeId: "24ga", paintId: "smp", ...o });
+const galvFF = bare("Galvalume", "Galvalume (Mill Finish)", { profile: FF100, width: 17, coilWidth: 21, height: 853.08 });
+const galvParts = panelPriceParts(galvFF, DEFAULT_PRICE_LIST, "tier2");
+assert.equal(galvParts.perPanelSqft, true, "Galvalume prices from the catalog's per-sq-ft-of-panel rate");
+assert.equal(galvParts.billIn, 17, "so its metal is billed on the 17\" pan");
+assert.equal(galvParts.coilIn, 21, "while its coil pull is still the 21\" coil");
+close(price(galvFF, "tier2"), 3.45 * (17 * 853.08 / 144) + 200 + 15, "Galvalume FF100 default order: $3.45 × 100.71 finished sq ft + $200 + $15");
+assert.equal(Math.round(price(galvFF, "tier2") * 100) / 100, 562.45, "Galvalume FF100 default order is $562.45, as before");
+const galvSSQ = bare("Galvalume", "Galvalume (Mill Finish)", { profile: SSQ200, width: 15.19, coilWidth: 21, height: 853.08 });
+assert.equal(Math.round(price(galvSSQ, "tier2") * 100) / 100, 525.46, "Galvalume SSQ200 default order is $525.46, as before");
+assert.equal(Math.round(price({ ...galvFF, height: 6960 }, "tier2") * 100) / 100, 3049.75, "580 ft of Galvalume FF100 is $3,049.75, as before");
+for (const [brand, colorName] of [["Bonderized", "Bonderized (Mill Finish)"], ["G90 Galvanized", "G90 Galvanized (Mill Finish)"]]) {
+  const o = bare(brand, colorName, { profile: FF100, width: 17, coilWidth: 21, height: 853.08 });
+  const g = findGauge(DEFAULT_CATALOG, "24ga", brand);
+  assert.equal(panelPriceParts(o, DEFAULT_PRICE_LIST, "tier2").perPanelSqft, true, `${brand} is per sq ft of panel`);
+  close(price(o, "tier2"), g.panelSqft * (17 * 853.08 / 144) + 200 + 15, `${brand} FF100 bills its rate on the pan`);
+}
+// Copper's Price List row is a rate for the copper, billed on the copper fed: 16 oz at $17.50
+// a sq ft (tier2) × 21" × 580 ft. This one went up with the coil-fed change, from $14,594.17
+// (17" of copper billed) to $17,977.50.
+const cuFF = run({ brand: "Copper", colorName: "Natural Copper (Mill Finish)", gaugeId: "16oz", paintId: "pvdf", profile: FF100, width: 17, coilWidth: 21, height: 6960 });
+const cuParts = panelPriceParts(cuFF, DEFAULT_PRICE_LIST, "tier2");
+assert.equal(cuParts.perPanelSqft, false, "copper with a Price List row is billed on the coil fed");
+close(cuParts.coilCost, 17.50 * (21 / 12) * 580, "copper: $17.50/sq ft × 21\" × 580 ft, no paint");
+assert.equal(Math.round(cuParts.total * 100) / 100, 17977.50, "580 ft of copper FF100 is $17,977.50");
+const noCopperRow = DEFAULT_PRICE_LIST.filter((p) => p.category !== "Copper");
+const cuNoRow = panelPriceParts(cuFF, noCopperRow, "tier2");
+assert.equal(cuNoRow.perPanelSqft, true, "copper without a Price List row prices from the catalog's per-panel rate");
+close(cuNoRow.coilCost, 14.50 * (17 / 12) * 580, "and bills it on the pan");
+// A painted panel with nothing in the Price List (or no coil row for its gauge) falls back to
+// the catalog's per-panel rate too, billed on the pan.
+const ffEmpty = panelPriceParts(ffDefault, [], "tier2");
+assert.equal(ffEmpty.perPanelSqft, true, "an empty Price List prices from the catalog's per-panel rate");
+close(ffEmpty.total, 3.75 * 1.15 * (17 * 853.08 / 144) + 200 + 15, "on the pan, × PVDF");
+const noCoilRow = DEFAULT_PRICE_LIST.filter((p) => p.name !== "24 Gauge Coil (per linear ft)");
+const ffNoCoil = panelPriceParts(ffDefault, noCoilRow, "tier2");
+assert.equal(ffNoCoil.perPanelSqft, true, "no coil row for the gauge: the catalog's per-panel rate");
+close(ffNoCoil.coilCost, 3.75 * 1.15 * (17 / 12) * 71.09, "billed on the pan");
+close(ffNoCoil.fabPerFt, 1.15, "with the Price List's fabrication row still per foot of panel");
+assert.ok(!panelPriceParts(ffDefault, DEFAULT_PRICE_LIST, "tier2").perPanelSqft, "a painted panel with its coil row is billed on the coil fed");
+
+// The panel form's pan and coil boxes. The pan is the coil less the takeup, to the hundredth
+// the form shows; a typed pan gives its coil to 1/10,000", so the pan worked back from that
+// coil is the pan typed. 17" of SS450 (4.125" takeup) is a 21.125" coil — rounding the coil
+// to the cent made it 21.13", which worked back to a 17.01" pan and a different price.
+assert.equal(panelCoilForPan(17, 4.125), 21.125, "17\" SS450 pan: 21.125\" coil");
+assert.equal(panelPanForCoil(21.125, 4.125), 17, "and back to 17\"");
+assert.equal(panelPanForCoil(21, 4.125), 16.88, "a 21\" coil makes the 16.88\" SS450 pan the form shows");
+assert.equal(panelPanForCoil(21, 4), 17, "and a 17\" FF100 pan");
+assert.equal(panelCoilForPan(15.19, 5.8125), 21.0025, "an SSQ200 pan typed as shown keeps its sixteenths");
+for (const name of listedProfiles(DEFAULT_CATALOG)) {
+  const t = DEFAULT_CATALOG.profiles[name].takeup;
+  for (const pan of [10, 12.5, 14, 15.19, 16, 16.88, 17, 17.25, 18, 19.99]) {
+    const coil = panelCoilForPan(pan, t);
+    assert.equal(panelPanForCoil(coil, t), pan, `${name}: a typed ${pan}" pan comes back as ${pan}"`);
+    if (coil <= PANEL_MAX_COIL_IN) assert.equal(panelOrderProblem(run({ profile: name, width: pan, coilWidth: coil, height: 240 })), null, `${name} ${pan}" pan on a ${coil}" coil passes the server's check`);
+  }
+}
+close(price(run({ profile: SS450, width: panelPanForCoil(panelCoilForPan(17, 4.125), 4.125), coilWidth: panelCoilForPan(17, 4.125), height: 853.08 }), "tier2"),
+  3.4125 * (21.125 / 12) * 1.15 * 71.09 + 200 + 15, "a typed 17\" SS450 pan is priced on its 21.125\" coil");
+
+// One set of panel fields for the estimate on the screen, the order sent and the Job Vault
+// save (App.jsx builds all three with panelOrderFields(panelForm)). The shared quantity the
+// trim and metal forms use never reaches a panel: the app's order and vault objects carry it
+// and then take the panel fields over it, as these do.
+const form = { profile: FF100, width: panelPanForCoil(21, 4), height: 853.08, coilWidth: 21, gaugeId: "24ga", paintId: "pvdf", brand: "Fortified Metal", colorName: "Regal White", runLocation: "Shop", jobSiteMiles: "" };
+const draft = panelOrderFields(form);
+assert.equal(draft.quantity, 1, "the estimate is one run");
+assert.equal(draft.coilWidth, 21, "and carries its coil width");
+assert.equal(draft.jobSiteMiles, undefined, "no miles when shop-rolled");
+const sent = { id: "x", customerName: "A", quantity: 4, coilWidth: undefined, notes: "", status: "Pending", ...panelOrderFields(form) };
+const saved = { type: "panel", ribStyle: "none", quantity: 4, ...panelOrderFields(form) };
+assert.equal(sent.quantity, 1, "the order sent is one run though the shared quantity was 4");
+assert.equal(saved.quantity, 1, "and so is the Job Vault save");
+assert.equal(sent.coilWidth, 21, "the order stores the coil width");
+assert.equal(panelOrderProblem(sent), null, "and passes the server's check");
+const estimate = computePrice(draft, DEFAULT_PRICE_LIST, DEFAULT_COIL_WIDTH_SCALE, "tier2");
+assert.equal(Math.round(estimate * 100) / 100, 703.22, "the form's Total Price (the estimate) for the default FF100 order is $703.22");
+close(computePrice(sent, DEFAULT_PRICE_LIST, DEFAULT_COIL_WIDTH_SCALE, "tier2"), estimate, "the order's price is the estimate shown");
+close(computePrice(saved, DEFAULT_PRICE_LIST, DEFAULT_COIL_WIDTH_SCALE, "tier2"), estimate, "and so is the Job Vault save's");
+close(panelPriceParts(draft, DEFAULT_PRICE_LIST, "tier2").total, estimate, "the reference rates on the form add up to it");
+const onSite = panelOrderFields({ ...form, runLocation: "Job Site", jobSiteMiles: "50" });
+assert.equal(onSite.jobSiteMiles, 50, "job-site miles go in as a number");
+close(computePrice(onSite, DEFAULT_PRICE_LIST, DEFAULT_COIL_WIDTH_SCALE, "tier2"), coilPerFt21 * 71.09 + 600 + 20 + 15, "and are charged past 40");
+// App.jsx builds the estimate, the order and the Job Vault save with this helper, and the
+// Total Price box shows the estimate: if that wiring changes, these checks no longer cover it.
+const appSrc = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
+assert.equal((appSrc.match(/panelOrderFields\(panelForm\)/g) || []).length, 3, "App.jsx: the draft, the order and the Job Vault save use panelOrderFields(panelForm)");
+// ...and nothing is laid over it: the draft is the helper's object as it is, and in the order
+// and the Job Vault save its fields come last, so the shared quantity can't win
+assert.match(appSrc, /const draft = shapeType === "panel"\n\s*\? panelOrderFields\(panelForm\)\n/, "App.jsx: a panel's draft is panelOrderFields(panelForm) alone");
+assert.match(appSrc, /\.\.\.\(shapeType === "panel" \? panelOrderFields\(panelForm\) : \{\}\),\n\s*\};\n\s*if \(shapeType === "panel"\) \{/, "App.jsx: the order takes the panel fields last");
+assert.match(appSrc, /\.\.\.\(shapeType === "panel" \? panelOrderFields\(panelForm\) : \{\}\),\n\s*\}\];/, "App.jsx: the Job Vault save takes the panel fields last");
+assert.match(appSrc, /const estimate = computePrice\(draft, /, "App.jsx: the estimate is computePrice of the draft");
+assert.match(appSrc, /data-testid="panel-total"[^\n]*\n[^\n]*priceText\(estimate\)/, "App.jsx: the panel form's Total Price box shows the estimate");
+
+// A panel line in words: the ticket, the order lists and the new-order email.
+const po1007 = { type: "panel", profile: SS450, width: 16.88, height: 28800, quantity: 4, gaugeId: "24ga", paintId: "pvdf", brand: "Fortified Metal", colorName: "Regal White", runLocation: "Shop", price: 66404.04 };
+assert.equal(panelRunText(sent), '17" panel from 21" coil, 71\' 1" total length', "a new order's ticket line");
+assert.equal(panelRunText({ ...sent, coilWidth: undefined }), '17" panel, 71\' 1" total length', "the email reads only the stored order: no coil width, no coil");
+assert.equal(panelRunText({ ...sent, coilWidth: undefined }, DEFAULT_CATALOG), '17" panel from 21" coil, 71\' 1" total length', "the app works it out from the catalog");
+assert.equal(panelRunText(po1007), 'Qty 4 × 16.88" panel, 2400\' long', "an older order sent with a panel count keeps it");
+assert.equal(orderAmountText(sent), "71' 1\" total length", "the order lists show a panel's total length, not Qty 1");
+assert.equal(orderAmountText(po1007), "Qty 4 × 2400'", "an older panel order shows its count");
+assert.equal(orderAmountText(trim), "Qty 4", "anything else shows its quantity");
+assert.equal(feetInches(853.08), "71' 1\"", "feet and inches");
+assert.equal(feetInches(240), "20'", "whole feet");
+const alertSrc = readFileSync(new URL("../supabase/functions/order-alert/index.ts", import.meta.url), "utf8");
+assert.match(alertSrc, /if \(type === "panel"\) bits\.push\(panelRunText\(it\)\);/, "order-alert words a panel line with panelRunText");
+
+// Reopening an older panel order sent with a panel count (Reorder, or a Job Vault item): it
+// loads as one run of its stored length, so the form says what went in and asks.
+assert.equal(panelReorderNote(po1007), "This order went in as Qty 4 × 2400'. Length is now the total for all the panels, and it's loaded as 2400' — check it before you send.", "PO-1007's note");
+assert.equal(panelReorderNote(sent), null, "nothing to say for one run");
+assert.equal(panelReorderNote(trim), null, "nor for anything but a panel");
+assert.match(appSrc, /panelReorderNote\(p\)/, "App.jsx: loadVaultItem asks panelReorderNote");
 
 // The catalog editors' takeup check (adding a profile or changing one).
 assert.equal(readTakeup("4").takeup, 4, "typed 4");

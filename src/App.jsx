@@ -4,7 +4,7 @@ import * as THREE from "three";
 import { storage, shopStorage } from "./lib/storage";
 import { supabase } from "./lib/supabaseClient";
 import { useAuth } from "./lib/AuthProvider";
-import { scupperSpec, scupperBack, MILEAGE_FREE, MILEAGE_RATE, mileageCharge, coilPriceForWidth, getSellRates, computePrice, panelPriceParts, panelCoilWidthIn, panelOrderProblem, sellRate, sellTierFor, DEFAULT_PRICE_LIST, DEFAULT_COIL_WIDTH_SCALE } from "../supabase/functions/_shared/pricing.mjs";
+import { scupperSpec, scupperBack, MILEAGE_FREE, MILEAGE_RATE, mileageCharge, coilPriceForWidth, getSellRates, computePrice, panelPriceParts, panelCoilWidthIn, panelOrderProblem, panelOrderFields, panelPanForCoil, panelCoilForPan, panelRunText, orderAmountText, panelReorderNote, sellRate, sellTierFor, DEFAULT_PRICE_LIST, DEFAULT_COIL_WIDTH_SCALE } from "../supabase/functions/_shared/pricing.mjs";
 import { DEFAULT_CATALOG, listedProfiles, resolveCatalog, readTakeup, getColorsForBrand as catalogColorsForBrand, findColor as catalogFindColor, findGauge as catalogFindGauge, findPaint as catalogFindPaint } from "../supabase/functions/_shared/catalog.mjs";
 import { loadPlatformCatalog, loadPlatformCatalogRows, invalidatePlatformCatalog, addCatalogItem, setCatalogItemDelisted, setCatalogItemData, loadShopCatalogSelection } from "./lib/catalog";
 
@@ -801,14 +801,6 @@ function formatDim(n) {
 function fmtIn(v) {
   const e = v * 8, onEighth = Math.abs(e - Math.round(e)) < 1e-6 && Math.round(e) % 2 !== 0;
   return v.toFixed(onEighth ? 3 : 2);
-}
-
-// Formats a length given in inches as feet + leftover inches: 126 -> "10' 6"", 120 -> "10'".
-function formatFeetInches(totalInches) {
-  const totalIn = Math.round(+totalInches || 0);
-  const ft = Math.floor(totalIn / 12);
-  const inch = totalIn % 12;
-  return inch === 0 ? `${ft}'` : `${ft}' ${inch}"`;
 }
 
 // A private-label applicant sells under its own name on somebody else's coil. Staff need
@@ -4382,6 +4374,8 @@ export default function ShopOrderApp() {
   const [coilWidth, setCoilWidth] = useState(21);
   const [sqftEditing, setSqftEditing] = useState(null);
   const [widthEditing, setWidthEditing] = useState(null);
+  // set when an older panel order sent with a panel count is reopened (panelReorderNote)
+  const [panelLoadNote, setPanelLoadNote] = useState("");
   const [runLocation, setRunLocation] = useState("Shop");
   const [jobSiteAddress, setJobSiteAddress] = useState("");
   const [jobSiteMiles, setJobSiteMiles] = useState("");
@@ -4402,8 +4396,7 @@ export default function ShopOrderApp() {
   // down, so the catalog reloading (the live rows arriving, a takeup edited) re-runs this from
   // an effect there; otherwise the form would send a pan worked out from the old takeup.
   const derivePanWidth = () => {
-    const takeup = activeCatalog.profiles[profile]?.takeup || 0;
-    setWidth(Math.max(0, Math.round((coilWidth - takeup) * 100) / 100));
+    setWidth(panelPanForCoil(coilWidth, activeCatalog.profiles[profile]?.takeup || 0));
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(derivePanWidth, [coilWidth, profile]);
@@ -4502,7 +4495,7 @@ export default function ShopOrderApp() {
     if (view !== "color") setColorSheet(false);
     setTrimBoxOpen(false);
     if (view === "color") { setTab("order"); setColorSheet(true); }
-    else if (view === "trim" || view === "panel" || view === "metal") { setTab("order"); if (view === "panel") setQuantity(1); setShapeType(view); setOrderStep("details"); }
+    else if (view === "trim" || view === "panel" || view === "metal") { setTab("order"); if (view === "panel") { setQuantity(1); setPanelLoadNote(""); } setShapeType(view); setOrderStep("details"); }
     // same reset the 3D Parts tile does, so a deep link starts as clean as a tap does
     else if (view === "part3d") { setTab("order"); setAccessories([]); setBox3dReturn(false); setShapeType("part3d"); setOrderStep("details"); }
     else if (view === "box" || view === "commercial") { setTab("order"); setShapeType("trim"); setOrderStep("details"); setRoofBoxKind(view === "commercial" ? "com" : "res"); setRoofBoxOpen(true); }
@@ -5569,8 +5562,11 @@ export default function ShopOrderApp() {
   // A panel is one run: Length is every panel end to end and there is no panel count, so its
   // quantity is always 1 (the shared `quantity` belongs to the trim, metal and 3D forms). The
   // profile picks the takeup and any profile fabrication row (FWQ100), as on the server.
+  // panelOrderFields builds the panel's fields for this estimate, the order and the Job Vault
+  // save alike, so the price on the screen is the price of what is sent.
+  const panelForm = { profile, width, height, coilWidth, gaugeId, paintId, brand, colorName, runLocation, jobSiteMiles };
   const draft = shapeType === "panel"
-    ? { type: "panel", profile, width, height, coilWidth, quantity: 1, gaugeId, paintId, brand, colorName, runLocation, jobSiteMiles }
+    ? panelOrderFields(panelForm)
     : shapeType === "metal"
     ? { type: "metal", flatWidth, flatLength, coilWidth: metalCoilWidth, coilLength: metalCoilLength, quantity, gaugeId, paintId, brand, colorName }
     : shapeType === "part3d"
@@ -5590,7 +5586,7 @@ export default function ShopOrderApp() {
   const resetForm = () => {
     dropWizard(); // the order is sent: every entry the wizard pushed goes; a tab entry beneath still leads back to its list
     setOrderStep("type");
-    setShapeType("panel"); setWidth(16.88); setHeight(853.08); setCoilWidth(21); setProfile(PROFILES()[0]); setRunLocation("Shop"); setJobSiteAddress(""); setJobSiteMiles(""); setMilesLookupNote(""); setSupplierCo("Fortified Metal"); setRibStyle(null); setClipRelief(null);
+    setShapeType("panel"); setWidth(16.88); setHeight(853.08); setCoilWidth(21); setPanelLoadNote(""); setProfile(PROFILES()[0]); setRunLocation("Shop"); setJobSiteAddress(""); setJobSiteMiles(""); setMilesLookupNote(""); setSupplierCo("Fortified Metal"); setRibStyle(null); setClipRelief(null);
     setFlatWidth(48); setFlatLength(120); setMetalCoilWidth(21); setMetalCoilLength(12000);
     setAccessories([]); setAccType("Screws"); setAccSpec(activeCatalog.accessories.specs.Screws?.[0] || ""); setAccProfile(PROFILES()[0]); setAccQty(1);
     setPartType("collector"); setPartW(12); setPartD(8); setPartH(10); setPartCapH(6); setPartView("3d"); setCapStyle("pyramid");
@@ -5987,7 +5983,7 @@ export default function ShopOrderApp() {
       height: isMetal || isPart3d ? undefined : height,
       flatWidth: isMetal ? flatWidth : undefined,
       flatLength: isMetal ? flatLength : undefined,
-      coilWidth: isMetal ? metalCoilWidth : shapeType === "panel" ? coilWidth : undefined,
+      coilWidth: isMetal ? metalCoilWidth : undefined,
       accessories: !isPart3d && accessories.length > 0 ? accessories : undefined,
       coilLength: isMetal ? metalCoilLength : undefined,
       partType: isPart3d ? partType : undefined,
@@ -6025,7 +6021,7 @@ export default function ShopOrderApp() {
       scupBoxH: isPart3d && partType === "scupper" && scupOutlet === "collector" ? scupBoxH : undefined,
       scupDsSize: isPart3d && partType === "scupper" && scupOutlet === "collector" ? scupDsSize : undefined,
       scupDsLen: isPart3d && partType === "scupper" && scupOutlet === "collector" ? scupDsLen : undefined,
-      quantity: shapeType === "panel" ? 1 : quantity,
+      quantity,
       runLocation: isMetal || isPart3d ? undefined : runLocation,
       jobSiteAddress: !isMetal && !isPart3d && runLocation === "Job Site" ? jobSiteAddress.trim() : "",
       jobSiteMiles: !isMetal && !isPart3d && runLocation === "Job Site" ? (+jobSiteMiles || 0) : undefined,
@@ -6041,6 +6037,8 @@ export default function ShopOrderApp() {
       notes: notes.trim(),
       status: "Pending",
       createdAt: new Date().toISOString(),
+      // a panel's priced fields are the estimate's own (one run, the coil width it is rolled from)
+      ...(shapeType === "panel" ? panelOrderFields(panelForm) : {}),
     };
     if (shapeType === "panel") {
       // the same check submit-order makes, so a refusal reads here before anything is sent
@@ -6106,7 +6104,7 @@ export default function ShopOrderApp() {
       profile: isMetal || isPart3d ? undefined : profile,
       width: isMetal || isPart3d ? undefined : width,
       height: isMetal || isPart3d ? undefined : height,
-      coilWidth: isMetal ? metalCoilWidth : shapeType === "panel" ? coilWidth : undefined,
+      coilWidth: isMetal ? metalCoilWidth : undefined,
       flatWidth: isMetal ? flatWidth : undefined,
       flatLength: isMetal ? flatLength : undefined,
       coilLength: isMetal ? metalCoilLength : undefined,
@@ -6153,7 +6151,9 @@ export default function ShopOrderApp() {
       scupDsSize: isPart3d && partType === "scupper" && scupOutlet === "collector" ? scupDsSize : undefined,
       scupDsLen: isPart3d && partType === "scupper" && scupOutlet === "collector" ? scupDsLen : undefined,
       accessories: !isPart3d && accessories.length > 0 ? accessories : undefined,
-      quantity: shapeType === "panel" ? 1 : quantity, gaugeId, paintId, brand, colorName, colorHex: colorObj.hex,
+      quantity, gaugeId, paintId, brand, colorName, colorHex: colorObj.hex,
+      // a panel saves the estimate's own fields (one run, its coil width)
+      ...(shapeType === "panel" ? panelOrderFields(panelForm) : {}),
     }];
   };
 
@@ -6230,10 +6230,10 @@ export default function ShopOrderApp() {
       setViewResetKey((k) => k + 1);
     } else if (kind === "panel") {
       if (p.profile) setProfile(p.profile);
-      // width re-derives from coilWidth + profile; submitted orders store only width,
-      // so reconstruct coilWidth from it when reordering
+      // width re-derives from coilWidth + profile; orders sent before panel orders stored
+      // their coil width carry only the pan width, so their coil is rebuilt from it
       if (p.coilWidth != null) setCoilWidth(p.coilWidth);
-      else if (p.width != null) setCoilWidth(p.width + (activeCatalog.profiles[p.profile]?.takeup ?? 0));
+      else if (p.width != null) setCoilWidth(panelCoilForPan(p.width, activeCatalog.profiles[p.profile]?.takeup ?? 0));
       if (p.height != null) setHeight(p.height);
       setRibStyle(p.ribStyle ?? null);
       setClipRelief(p.clipRelief ?? null);
@@ -6285,8 +6285,12 @@ export default function ShopOrderApp() {
       setScupBoxW(sk.boxW); setScupBoxD(sk.boxD); setScupBoxH(sk.boxH);
       setScupDsSize(sk.dsSize); setScupDsLen(sk.dsLen);
     }
-    setToast(`Loaded "${vaultItemLabel(item)}" from ${sourceLabel} — adjust anything and send when ready.`);
-    setTimeout(() => setToast(""), 4000);
+    // An older panel order sent with a panel count comes back as one run of its stored length,
+    // which may be a quarter of what went in — say so beside the Length instead of guessing.
+    const note = kind === "panel" ? panelReorderNote(p) : null;
+    setPanelLoadNote(note || "");
+    setToast(note || `Loaded "${vaultItemLabel(item)}" from ${sourceLabel} — adjust anything and send when ready.`);
+    setTimeout(() => setToast(""), note ? 9000 : 4000);
   };
 
   const updateStatus = async (id, status) => {
@@ -6819,7 +6823,7 @@ export default function ShopOrderApp() {
                 ].map((t) => {
                   const Icon = t.icon;
                   return (
-                    <button key={t.id} data-testid={`tile-${t.id}`} onClick={() => { if (t.kind) { goDetails(() => openRoofBox(t.kind), "trim"); pushNav("kit", { kind: t.kind }); return; } goDetails(() => { if (t.id === "part3d") { setAccessories([]); setBox3dReturn(false); } if (t.id === "panel") setQuantity(1); setShapeType(t.id); }, t.id); }} className="mac-btn"
+                    <button key={t.id} data-testid={`tile-${t.id}`} onClick={() => { if (t.kind) { goDetails(() => openRoofBox(t.kind), "trim"); pushNav("kit", { kind: t.kind }); return; } goDetails(() => { if (t.id === "part3d") { setAccessories([]); setBox3dReturn(false); } if (t.id === "panel") { setQuantity(1); setPanelLoadNote(""); } setShapeType(t.id); }, t.id); }} className="mac-btn"
                       style={{
                         display: "flex", alignItems: "center", gap: 14, padding: 16, borderRadius: 12, border: `1px solid ${t.accent}`,
                         background: `linear-gradient(180deg, ${t.accent}, ${t.accent}dd)`, color: "#fff", cursor: "pointer", textAlign: "left",
@@ -7599,6 +7603,11 @@ export default function ShopOrderApp() {
                   </div>
                 </div>
 
+                {panelLoadNote && (
+                  <div data-testid="panel-reorder-note" style={{ fontSize: 11.5, fontWeight: 600, color: AMBER, marginTop: 12, padding: "8px 10px", border: `1px solid ${AMBER}`, borderRadius: 6, background: theme.highlight }}>
+                    {panelLoadNote}
+                  </div>
+                )}
                 <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
                   <label style={{ flex: 1, fontSize: 11, color: theme.textSecondary }}>
                     Total Length, All Panels (ft)
@@ -7649,7 +7658,8 @@ export default function ShopOrderApp() {
                           const newWidth = Math.max(0, +val);
                           const takeup = activeCatalog.profiles[profile]?.takeup || 0;
                           setWidth(newWidth);
-                          setCoilWidth(Math.max(0, Math.min(48, Math.round((newWidth + takeup) * 100) / 100)));
+                          // to 1/10,000", so the pan worked back from this coil is the pan typed
+                          setCoilWidth(Math.min(48, panelCoilForPan(newWidth, takeup)));
                         }
                       }}
                       onBlur={(e) => { setWidthEditing(null); if (e.target.value === "") setCoilWidth(21); }}
@@ -7663,11 +7673,11 @@ export default function ShopOrderApp() {
                       The two rates are what the total is built from, shown for reference; Total Price is
                       computePrice, the same number as the Estimated total and the price the server stores. */}
                   <label style={{ flex: 1, fontSize: 11, color: theme.textSecondary }}>
-                    Coil $/LF
+                    {panelParts.perPanelSqft ? "Metal $/LF" : "Coil $/LF"}
                     {coilOverMax ? (
                       <div className="mono" style={{ width: "100%", padding: 8, marginTop: 4, border: `1px solid ${coilGateColor}`, borderRadius: 6, fontSize: 13, background: theme.highlight, boxSizing: "border-box", color: coilGateColor, fontWeight: 700 }}>{coilGateText}</div>
                     ) : isDemo ? signUpBox() : (
-                      <div className="mono" data-testid="panel-coil-rate" title={`${+panelParts.coilIn.toFixed(3)}" of coil per foot of panel, takeup included`}
+                      <div className="mono" data-testid="panel-coil-rate" title={panelParts.perPanelSqft ? `${+panelParts.billIn.toFixed(3)}" of finished panel per foot, at the catalog's rate per sq ft of panel` : `${+panelParts.coilIn.toFixed(3)}" of coil per foot of panel, takeup included`}
                         style={{ width: "100%", padding: 8, marginTop: 4, border: `1px dashed ${theme.border}`, borderRadius: 6, fontSize: 14, boxSizing: "border-box", color: theme.textSecondary }}>
                         {priceText(panelParts.coilPerFt)}
                       </div>
@@ -7698,7 +7708,10 @@ export default function ShopOrderApp() {
                 )}
                 {!isDemo && !coilOverMax && (
                   <div data-testid="panel-rate-note" style={{ fontSize: 10, color: theme.textSecondary, marginTop: 4 }}>
-                    Coil and fabrication are per foot of panel, for reference — coil is the full {+panelParts.coilIn.toFixed(3)}" coil, takeup included. Total Price is what the order costs: those rates × the length, the fabrication minimum ($200 shop-rolled · $600 on site) when it's more, any premium-color or mileage charge, and a $15 order charge.
+                    {panelParts.perPanelSqft
+                      ? <>Metal and fabrication are per foot of panel, for reference — {brand} is priced per sq ft of finished panel, so the metal is the {+panelParts.billIn.toFixed(3)}" pan.</>
+                      : <>Coil and fabrication are per foot of panel, for reference — coil is the full {+panelParts.coilIn.toFixed(3)}" coil, takeup included.</>}
+                    {" "}Total Price is what the order costs: those rates × the length, the fabrication minimum ($200 shop-rolled · $600 on site) when it's more, any premium-color or mileage charge, and a $15 order charge.
                   </div>
                 )}
 
@@ -9110,7 +9123,7 @@ export default function ShopOrderApp() {
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div style={{ fontSize: 12.5, fontWeight: 700, color: theme.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{vaultItemLabel(v)}</div>
                               <div className="mono" style={{ fontSize: 9.5, color: theme.textSecondary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                Qty {v.payload?.quantity ?? 1} · {v.payload?.gaugeId || ""} · {v.payload?.colorName || ""} · saved {new Date(v.created_at).toLocaleDateString()}
+                                {orderAmountText(v.payload)} · {v.payload?.gaugeId || ""} · {v.payload?.colorName || ""} · saved {new Date(v.created_at).toLocaleDateString()}
                               </div>
                               {inc > 0 && (
                                 <div className="mono" style={{ fontSize: 9.5, color: AMBER, fontWeight: 700, marginTop: 2 }}>
@@ -9202,7 +9215,7 @@ export default function ShopOrderApp() {
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: 12.5, fontWeight: 700, color: theme.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{vaultItemLabel({ payload: o })}</div>
                           <div className="mono" style={{ fontSize: 9.5, color: theme.textSecondary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            Qty {o.quantity ?? 1} · {o.gaugeId || ""} · {o.colorName || ""}
+                            {orderAmountText(o)} · {o.gaugeId || ""} · {o.colorName || ""}
                           </div>
                         </div>
                         <span className="disp" style={{ background: STATUS_COLOR[o.status] || STEEL, color: "#fff", borderRadius: 999, fontSize: 8.5, padding: "3px 9px", fontWeight: 700, letterSpacing: "0.05em", whiteSpace: "nowrap", flexShrink: 0 }}>
@@ -9470,9 +9483,8 @@ export default function ShopOrderApp() {
                                 {o.type === "panel" ? (
                                   // A panel order is one run: Length is every panel end to end. Orders sent
                                   // before that was fixed carry a quantity, and were priced and pulled by it.
-                                  +o.quantity === 1
-                                    ? <>{o.width}" panel from {+panelCoilWidthIn(o, activeCatalog).toFixed(3)}" coil, {formatFeetInches(o.height)} total length — {o.profile}</>
-                                    : <>Qty {o.quantity} × {o.width}" panel, {formatFeetInches(o.height)} long — {o.profile}</>
+                                  // The new-order email words it the same way (panelRunText).
+                                  <>{panelRunText(o, activeCatalog)} — {o.profile}</>
                                 ) : (
                                   <>
                                     {o.type === "metal"

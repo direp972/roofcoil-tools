@@ -248,10 +248,14 @@ sheet over the chooser.
   apply `supabase/migrations/20261017200506_orders_server_priced.sql`, which drops the
   browser's insert right on `orders`, so a tampered page can't send a price of its own.
   `node scripts/pricing-check.mjs` checks the tier math against the seed price list, and
-  the panel math: a panel order is one run (quantity 1, Length is the whole of it), its coil
-  is billed on the coil fed (coil width × length, takeup included), fabrication on the
-  Price List's $/LF, and `submit-order` refuses a pan width that isn't the coil minus the
-  profile's takeup. CI runs it before the build.
+  the panel math: a panel order is one run (quantity 1, Length is the whole of it), a Price
+  List coil or copper rate is billed on the coil fed (coil width × length, takeup included),
+  a catalog rate listed per sq ft of finished panel (Galvalume, Bonderized, G90) on the pan,
+  fabrication on the Price List's $/LF, and `submit-order` refuses a pan width that isn't
+  the coil minus the profile's takeup. It also checks the panel form's own pieces: the
+  estimate, the order and the Job Vault save come from one `panelOrderFields`, a typed pan
+  width keeps its coil, and the ticket, order lists, email and Reorder note read a panel as
+  its total length. CI runs it before the build.
 - The first staff member is added by SQL (step 7). After that, platform staff grant or
   revoke platform admin with the **Platform** button in the **Customer Pricing Tiers**
   panel, and a shop's owners give their own people the shop's backend with **Admin**;

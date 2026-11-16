@@ -166,14 +166,21 @@ export function findFabItem(priceList, profile, tier) {
   return (code && fabItems.find((p) => p.name.toLowerCase().startsWith(code))) || fabItems.find((p) => p.name.toLowerCase().startsWith("panel")) || fabItems[0] || null;
 }
 
+// perPanelSqft marks a coilSqft that is the catalog's own gauge rate, which the catalog lists
+// per sq ft of finished panel (an all-in panel rate, with no fabrication row beside it):
+// Galvalume, Bonderized and G90 always, Copper without a Price List row, and any metal while
+// the Price List is empty or lacks that gauge's coil row. A panel bills it on the pan, as it
+// is listed. A Price List metal row (a gauge's coil row, a copper weight's row) is a rate for
+// the metal itself, and a panel bills it on the coil fed — see panelPriceParts.
 export function getSellRates(gaugeId, brand, priceList, profile, tier, catalog = DEFAULT_CATALOG) {
   const gauge = findGauge(catalog, gaugeId, brand);
-  const fallback = { coilSqft: gauge.panelSqft, panelSqft: gauge.panelSqft, fabSqft: 0, trimFt: gauge.trimFt };
+  const fallback = { coilSqft: gauge.panelSqft, panelSqft: gauge.panelSqft, fabSqft: 0, trimFt: gauge.trimFt, perPanelSqft: true };
   if (!priceList || priceList.length === 0) return fallback;
 
   if (brand === "Copper") {
     const item = priceList.find((p) => p.category === "Copper" && p.name.toLowerCase().includes(gauge.label.toLowerCase()) && sellRate(p, tier) !== undefined);
-    const coilSqft = item ? sellRate(item, tier) : fallback.coilSqft;
+    if (!item) return fallback;
+    const coilSqft = sellRate(item, tier);
     return { coilSqft, panelSqft: coilSqft, fabSqft: 0, trimFt: fallback.trimFt };
   }
   if (["G90 Galvanized", "Galvalume", "Bonderized"].includes(brand)) {
@@ -197,7 +204,7 @@ export function getSellRates(gaugeId, brand, priceList, profile, tier, catalog =
   const fabSqft = fabFt / (coilWidthIn / 12);
   const panelSqft = coilSqft + fabSqft;
   const trimFt = trimItem ? sellRate(trimItem, tier) : fallback.trimFt;
-  return { coilSqft, panelSqft, fabSqft, fabFt, trimFt };
+  return { coilSqft, panelSqft, fabSqft, fabFt, trimFt, ...(coilItem ? {} : { perPanelSqft: true }) };
 }
 
 /* ------------------------------------- panels ------------------------------------- */
@@ -218,12 +225,35 @@ export function panelCoilWidthIn(order, catalog = DEFAULT_CATALOG) {
   return (Number(order?.width) || 0) + takeup;
 }
 
+// The pan a coil makes, and the coil a pan needs, for the panel form. The pan is kept to the
+// hundredth the form shows. A typed pan gives its coil to 1/10,000" — exact for takeups in
+// sixteenths — so the pan worked back from that coil is the pan that was typed: 17" of SS450
+// (4.125" takeup) is a 21.125" coil, not 21.13" (which made a 17.01" pan and moved the price).
+export const panelPanForCoil = (coilIn, takeup) => Math.max(0, Math.round(((+coilIn || 0) - (+takeup || 0)) * 100) / 100);
+export const panelCoilForPan = (panIn, takeup) => Math.max(0, Math.round(((+panIn || 0) + (+takeup || 0)) * 10000) / 10000);
+
+// The panel fields of the estimate on the screen, the order sent and a Job Vault save, from
+// the panel form's values, so the three are one object: one run (quantity 1, whatever the
+// trim or metal forms hold in the shared quantity), the coil it is rolled from, and the
+// job-site miles only when it is rolled on site.
+export function panelOrderFields(f) {
+  const onSite = f.runLocation === "Job Site";
+  return {
+    type: "panel", profile: f.profile, width: f.width, height: f.height, coilWidth: f.coilWidth, quantity: 1,
+    gaugeId: f.gaugeId, paintId: f.paintId, brand: f.brand, colorName: f.colorName,
+    runLocation: f.runLocation, jobSiteMiles: onSite ? (+f.jobSiteMiles || 0) : undefined,
+  };
+}
+
 // The pieces of a panel price, so the panel calculator shows the rates the total is built
 // from and computePrice adds up exactly the same numbers.
 //   Coil: the metal fed through the roll former — coil width × length, takeup included —
 //   at the Price List coil rate for the gauge, times the paint multiplier. (It used to be
 //   the pan's coverage × length, so the takeup's metal was never charged: a 21" coil formed
-//   to a 17" FF100 pan billed 17" of metal.)
+//   to a 17" FF100 pan billed 17" of metal.) A Price List copper row is a rate for the copper
+//   itself and is billed the same way. A rate the catalog lists per sq ft of finished panel
+//   (perPanelSqft: Galvalume, Bonderized, G90, and any metal with no Price List row) is
+//   billed on the pan, as listed — billIn is the width the metal is billed on.
 //   Fabrication: the Price List's fabrication row is dollars per linear foot of panel, and
 //   that is what is charged — not spread over the coil row's width and not marked up for
 //   paint, which is metal, not roll-forming.
@@ -233,8 +263,10 @@ export function panelPriceParts(order, priceList, tier, catalog = DEFAULT_CATALO
   const colorObj = findColor(catalog, order.colorName, order.brand, order.paintId);
   const premiumMult = colorObj?.premium ? 1.12 : 1;
   const coilIn = panelCoilWidthIn(order, catalog);
+  const perPanelSqft = !!rates.perPanelSqft;
+  const billIn = perPanelSqft ? (Number(order.width) || 0) : coilIn;
   const runFt = (order.height / 12) * order.quantity;           // feet of panel, and of coil
-  const coilPerFt = rates.coilSqft * (coilIn / 12) * paint.mult; // $ per foot of coil fed
+  const coilPerFt = rates.coilSqft * (billIn / 12) * paint.mult; // $ per foot of panel for the metal
   const fabPerFt = rates.fabFt || 0;                             // $ per foot of panel
   const coilCost = coilPerFt * runFt;
   const fabCost = fabPerFt * runFt;
@@ -244,7 +276,48 @@ export function panelPriceParts(order, priceList, tier, catalog = DEFAULT_CATALO
   // $2/mile one way past 40 miles from the nearest roll-forming base
   const mileage = order.runLocation === "Job Site" ? mileageCharge(order.jobSiteMiles) : 0;
   const base = coilCost + Math.max(fabCost, fabMin) + mileage;
-  return { coilIn, runFt, coilPerFt, fabPerFt, coilCost, fabCost, fabMin, mileage, premiumMult, total: Math.max(15, base * premiumMult + 15) };
+  return { coilIn, billIn, perPanelSqft, runFt, coilPerFt, fabPerFt, coilCost, fabCost, fabMin, mileage, premiumMult, total: Math.max(15, base * premiumMult + 15) };
+}
+
+// Feet and inches from inches, as the shop reads a length: 853.08 -> 71' 1", 240 -> 20'.
+export function feetInches(totalInches) {
+  const totalIn = Math.round(+totalInches || 0);
+  const ft = Math.floor(totalIn / 12), inch = totalIn % 12;
+  return inch === 0 ? `${ft}'` : `${ft}' ${inch}"`;
+}
+const inches = (v) => `${+(+v || 0).toFixed(3)}"`;
+// A panel order is one run when it says quantity 1 (or carries no quantity at all).
+const oneRun = (o) => o?.quantity == null || +o.quantity === 1;
+
+// A panel order's run in words, the same on the shop's ticket and in the new-order email:
+//   one run:       17" panel from 21" coil, 71' 1" total length
+//   an older order sent with a panel count, which it was priced and pulled by:
+//                  Qty 4 × 16.88" panel, 2400' long
+// The coil is the one the order stores; without one it is worked out from the catalog when
+// one is passed (the app), and left out when not (the email reads only the stored order).
+export function panelRunText(o, catalog) {
+  if (!oneRun(o)) return `Qty ${o.quantity} × ${inches(o.width)} panel, ${feetInches(o.height)} long`;
+  const coil = Number(o.coilWidth) > 0 ? +o.coilWidth : catalog ? panelCoilWidthIn(o, catalog) : 0;
+  return `${inches(o.width)} panel${coil > 0 ? ` from ${inches(coil)} coil` : ""}, ${feetInches(o.height)} total length`;
+}
+
+// How much of an order line, for the order lists (Past Orders, the Job Vault): a panel's
+// total length ("71' 1" total length"; an older panel order "Qty 4 × 2400'"), anything else
+// its quantity.
+export function orderAmountText(o) {
+  if (o?.type !== "panel") return `Qty ${o?.quantity ?? 1}`;
+  return oneRun(o) ? `${feetInches(o.height)} total length` : `Qty ${o.quantity} × ${feetInches(o.height)}`;
+}
+
+// What to tell someone reopening a panel order (Reorder, or a Job Vault item) that was sent
+// with a panel count. The form has no count: its Length is every panel end to end, so the
+// order comes back as one run of the stored length, which may be a quarter of what went in.
+// Which was meant isn't on the order, so the note says what it was and asks — null when
+// there is nothing to say.
+export function panelReorderNote(p) {
+  if (p?.type !== "panel" || oneRun(p)) return null;
+  const len = feetInches(p.height);
+  return `This order went in as Qty ${p.quantity} × ${len}. Length is now the total for all the panels, and it's loaded as ${len} — check it before you send.`;
 }
 
 // Why a panel order can't be priced as sent, in words for the customer, or null when it can.
