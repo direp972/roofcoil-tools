@@ -204,7 +204,8 @@ export const PROFILE_INFO = {
   'SSQ550 – 1.5" Snap-Lock': { code: "SSQ550", family: "snap", takeup: 5.125, delisted: true, desc: "1.5\" snap-lock, alternate roller set." },
   'TRQ250 – 2.5" Mechanical Seam Trapezoid': { code: "TRQ250", family: "trapezoid", takeup: 5.625, delisted: true, desc: "Tallest seam in the lineup, with an anti-capillary leg for commercial/industrial roofs." },
   'SS450SL – 1.5" Snap-Lock': { code: "SS450SL", family: "snapbump", takeup: 4.375, delisted: true, desc: "Same profile as SS450 with a self-locking bump on the male leg." },
-  'FF100 – 1" Snap-Lock, Slotted Flange': { code: "FF100", family: "flange", takeup: 4.0625, desc: "Fastened through a flange on the male leg, then the female leg snaps over it — no clips." },
+  // FF100 is the shop's own tooling, measured: 4" off the coil (a 21" coil makes a 17" panel).
+  'FF100 – 1" Snap-Lock, Slotted Flange': { code: "FF100", family: "flange", takeup: 4, desc: "Fastened through a flange on the male leg, then the female leg snaps over it — no clips." },
   'FF150 – 1.5" Snap-Lock, Slotted Flange': { code: "FF150", family: "flange", takeup: 5.3125, delisted: true, desc: "Taller fastener-flange snap-lock, no clips required." },
   'SSQ275 – 2" Snap-Lock / Mech. Seam': { code: "SSQ275", family: "newlock", takeup: 6.5, delisted: true, desc: "Proprietary two-in-one profile — install as snap-lock, seam it later if the job calls for it." },
   // Adax Metals (Weatherford, TX) — licensed Ultra Seam profiles they roll in-house.
