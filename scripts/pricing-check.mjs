@@ -3,7 +3,7 @@
 // Run: node scripts/pricing-check.mjs   (exits non-zero on the first failing check)
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { computePrice, getSellRates, sellTierFor, sellRate, panelPriceParts, panelCoilWidthIn, panelCoilFromStoredPan, panelOrderProblem, panelOrderFields, panelPanForCoil, panelCoilForPan, panelRunText, orderAmountText, panelReorderNote, feetInches, PANEL_MAX_COIL_IN, DEFAULT_PRICE_LIST, DEFAULT_COIL_WIDTH_SCALE } from "../supabase/functions/_shared/pricing.mjs";
+import { computePrice, getSellRates, sellTierFor, sellRate, panelPriceParts, panelCoilWidthIn, panelCoilFromStoredPan, panelOrderProblem, panelOrderFields, panelPanForCoil, panelCoilForPan, panelRunText, orderAmountText, panelReorderNote, paintFor, feetInches, PANEL_MAX_COIL_IN, DEFAULT_PRICE_LIST, DEFAULT_COIL_WIDTH_SCALE } from "../supabase/functions/_shared/pricing.mjs";
 import { DEFAULT_CATALOG, findGauge, findColor, findPaint, listedProfiles, clipSpecForProfile, catalogToRows, catalogFromRows, isUsableCatalog, resolveCatalog, isOffered, getColorsForBrand, readTakeup } from "../supabase/functions/_shared/catalog.mjs";
 import "../public/catalog-colors.js"; // the public pages' color index (globalThis.rcCatalogColorsFromRows)
 
@@ -86,10 +86,27 @@ const run = (o) => ({ type: "panel", quantity: 1, gaugeId: "24ga", paintId: "pvd
 const coilPerFt21 = 3.4125 * (21 / 12) * 1.15; // $6.8677 per foot of 21" PVDF coil
 
 // The panel form's default order: 853.08" (71.09 ft), 100 finished sq ft at a 16.88" pan.
-// FF100 from a 21" coil is a 17" pan: 71.09 ft of 21" coil, fabrication under the $200 floor.
+// FF100 from a 21" coil is a 17" pan: 71.09 ft of 21" coil and 71.09 ft of fabrication, past
+// the $200 run minimum, so the run is just the two at their per-foot rates.
 const ffDefault = run({ profile: FF100, width: 17, coilWidth: 21, height: 853.08 });
-close(price(ffDefault, "tier2"), coilPerFt21 * 71.09 + 200 + 15, "FF100 default order: 21\" of coil per foot, fab minimum, $15");
-assert.equal(Math.round(price(ffDefault, "tier2") * 100) / 100, 703.22, "FF100 default order is $703.22");
+close(price(ffDefault, "tier2"), (coilPerFt21 + 1.15) * 71.09 + 15, "FF100 default order: 21\" of coil + fabrication per foot, $15");
+assert.equal(Math.round(price(ffDefault, "tier2") * 100) / 100, 584.98, "FF100 default order is $584.98");
+
+// The run minimum is a gate, not a charge on top: under it the run is the minimum, over it
+// the run is coil + fabrication. $200 shop-rolled, $600 on a job site.
+const short = (ft, o = {}) => panelPriceParts(run({ profile: FF100, width: 17, coilWidth: 21, height: ft * 12, ...o }), DEFAULT_PRICE_LIST, "tier2");
+close(short(20).total, 200 + 15, "20 ft: coil + fabrication is $160.35, so the run is the $200 minimum");
+assert.equal(short(20).atMin, true, "and the parts say so");
+const even = 200 / (coilPerFt21 + 1.15);
+close(short(even).total, 200 + 15, "exactly at the minimum: $200");
+close(short(even + 1).total, (coilPerFt21 + 1.15) * (even + 1) + 15, "a foot past it: coil + fabrication, no minimum added");
+assert.equal(short(even + 1).atMin, false, "and not at the minimum");
+assert.ok(short(even + 1).total < short(even).total + 200, "the minimum is never added on top");
+close(short(100).total, (coilPerFt21 + 1.15) * 100 + 15, "100 ft painted FF100: $686.77 coil + $115 fabrication + $15 = $816.77");
+close(short(50, { runLocation: "Job Site", jobSiteMiles: 30 }).total, 600 + 15, "50 ft on a job site: $400.88 of coil and fabrication is under the $600 minimum");
+close(short(100, { runLocation: "Job Site", jobSiteMiles: 30 }).total, (coilPerFt21 + 1.15) * 100 + 15, "100 ft on a job site: $801.77 is past the $600 minimum, so no minimum");
+close(short(100, { runLocation: "Job Site", jobSiteMiles: 50 }).total, (coilPerFt21 + 1.15) * 100 + 20 + 15, "mileage is charged on top either way");
+close(short(50, { runLocation: "Job Site", jobSiteMiles: 50 }).total, 600 + 20 + 15, "including at the minimum");
 
 // Coil is billed on the coil fed, takeup included: the same 21" coil run the same length
 // costs the same whatever pan it is formed into (both use the generic fabrication row).
@@ -106,8 +123,9 @@ close(p580.total - smp580.total, 3.4125 * (21 / 12) * (1.15 - 1) * 580, "PVDF an
 close(smp580.fabCost, p580.fabCost, "fabrication does not change with the paint");
 close(panelPriceParts(run({ profile: FWQ100, width: 17, coilWidth: 21, height: 6960 }), DEFAULT_PRICE_LIST, "tier2").fabPerFt, 2.00, "FWQ100 uses its own fabrication row");
 close(panelPriceParts(run({ profile: FF100, width: 17, coilWidth: 21, height: 240, runLocation: "Job Site", jobSiteMiles: 50 }), DEFAULT_PRICE_LIST, "tier2").total,
-  coilPerFt21 * 20 + 600 + 20 + 15, "job site: $600 fabrication floor and $2/mile past 40");
-close(price(run({ profile: FF100, width: 17, coilWidth: 21, height: 853.08, colorName: "Burnished Slate" }), "tier2"), (coilPerFt21 * 71.09 + 200) * 1.12 + 15, "premium color ×1.12 on the order before the $15");
+  600 + 20 + 15, "job site: 20 ft is under the $600 minimum, plus $2/mile past 40");
+close(price(run({ profile: FF100, width: 17, coilWidth: 21, height: 853.08, colorName: "Burnished Slate" }), "tier2"), (coilPerFt21 + 1.15) * 71.09 * 1.12 + 15, "premium color ×1.12 on the order before the $15");
+close(price(run({ profile: FF100, width: 17, coilWidth: 21, height: 240, colorName: "Burnished Slate" }), "tier2"), 200 * 1.12 + 15, "and on the minimum when the run is at it");
 
 // The coil width: the order's own when it carries one; otherwise pan width + the profile's
 // takeup from the catalog passed in (orders sent before coil widths were stored).
@@ -146,27 +164,39 @@ const galvParts = panelPriceParts(galvFF, DEFAULT_PRICE_LIST, "tier2");
 assert.equal(galvParts.coilIn, 21, "Galvalume FF100 is rolled from the 21\" coil");
 assert.equal("billIn" in galvParts || "perPanelSqft" in galvParts, false, "no metal is billed on the pan any more");
 close(galvParts.coilCost, 3.45 * (21 / 12) * 71.09, "Galvalume: $3.45/sq ft × 21\" of coil × 71.09 ft");
-close(price(galvFF, "tier2"), 3.45 * (21 * 853.08 / 144) + 200 + 15, "Galvalume FF100 default order: $3.45 × 124.41 sq ft of coil + $200 + $15");
+close(price(galvFF, "tier2"), 3.45 * (21 * 853.08 / 144) + 15, "Galvalume FF100 default order: $3.45 × 124.41 sq ft of coil (past the $200 minimum) + $15");
+close(price({ ...galvFF, height: 240 }, "tier2"), 200 + 15, "20 ft of Galvalume is $120.75 of coil: the $200 minimum");
 const galvSSQ = bare("Galvalume", "Galvalume (Mill Finish)", { profile: SSQ200, width: 15.19, coilWidth: 21, height: 853.08 });
 close(price(galvSSQ, "tier2"), price(galvFF, "tier2"), "Galvalume SSQ200 on the same 21\" coil costs the same as FF100: the coil is what's billed");
 for (const [brand, colorName] of [["Bonderized", "Bonderized (Mill Finish)"], ["G90 Galvanized", "G90 Galvanized (Mill Finish)"]]) {
   const o = bare(brand, colorName, { profile: FF100, width: 17, coilWidth: 21, height: 853.08 });
   const g = findGauge(DEFAULT_CATALOG, "24ga", brand);
-  close(price(o, "tier2"), g.panelSqft * (21 * 853.08 / 144) + 200 + 15, `${brand} FF100 bills its rate on the 21" coil`);
+  close(price(o, "tier2"), Math.max(g.panelSqft * (21 * 853.08 / 144), 200) + 15, `${brand} FF100 bills its rate on the 21" coil`);
 }
+// Unpainted metals carry no paint: the app keeps the painted side's paint id (PVDF) when
+// Unpainted is picked, and that used to add ×1.15 to mill-finish Galvalume, Bonderized and G90.
+for (const brand of ["Galvalume", "Bonderized", "G90 Galvanized", "Copper"]) {
+  assert.equal(paintFor(brand, "pvdf").mult, 1, `${brand} is charged no paint, even on a PVDF paint id`);
+}
+assert.equal(paintFor("Fortified Metal", "pvdf").mult, 1.15, "painted metal keeps its paint");
+close(price({ ...galvFF, paintId: "pvdf" }, "tier2"), price({ ...galvFF, paintId: "smp" }, "tier2"), "Galvalume FF100 is the same price whatever paint id the form holds");
+const galvTrim = { type: "trim", brand: "Galvalume", colorName: "Galvalume (Mill Finish)", gaugeId: "24ga", quantity: 4, lengthPerPiece: 10, points: [{}, {}, {}, {}] };
+close(price({ ...galvTrim, paintId: "pvdf" }, "tier2"), 40 * 2.55 + 2 * 2 * 4 + 10, "Galvalume trim: $2.55/ft, no paint");
+close(price({ ...galvTrim, paintId: "pvdf" }, "tier2"), price({ ...galvTrim, paintId: "smp" }, "tier2"), "and so is Galvalume trim");
+
 // Copper's Price List row is a rate for the copper, billed on the copper fed: 16 oz at $17.50
 // a sq ft (tier2) × 21" × 580 ft.
 const cuFF = run({ brand: "Copper", colorName: "Natural Copper (Mill Finish)", gaugeId: "16oz", paintId: "pvdf", profile: FF100, width: 17, coilWidth: 21, height: 6960 });
 const cuParts = panelPriceParts(cuFF, DEFAULT_PRICE_LIST, "tier2");
 close(cuParts.coilCost, 17.50 * (21 / 12) * 580, "copper: $17.50/sq ft × 21\" × 580 ft, no paint");
-assert.equal(Math.round(cuParts.total * 100) / 100, 17977.50, "580 ft of copper FF100 is $17,977.50");
+assert.equal(Math.round(cuParts.total * 100) / 100, 17777.50, "580 ft of copper FF100 is $17,777.50: $17,762.50 of copper, past the minimum, + $15");
 const noCopperRow = DEFAULT_PRICE_LIST.filter((p) => p.category !== "Copper");
 const cuNoRow = panelPriceParts(cuFF, noCopperRow, "tier2");
 close(cuNoRow.coilCost, 14.50 * (21 / 12) * 580, "copper without a Price List row: the catalog's rate, on the 21\" coil");
 // A painted panel with nothing in the Price List (or no coil row for its gauge) falls back to
 // the catalog's gauge rate, on the coil fed too.
 const ffEmpty = panelPriceParts(ffDefault, [], "tier2");
-close(ffEmpty.total, 3.75 * 1.15 * (21 * 853.08 / 144) + 200 + 15, "an empty Price List: the catalog's rate on the 21\" coil, × PVDF");
+close(ffEmpty.total, Math.max(3.75 * 1.15 * (21 * 853.08 / 144), 200) + 15, "an empty Price List: the catalog's rate on the 21\" coil, × PVDF");
 const noCoilRow = DEFAULT_PRICE_LIST.filter((p) => p.name !== "24 Gauge Coil (per linear ft)");
 const ffNoCoil = panelPriceParts(ffDefault, noCoilRow, "tier2");
 close(ffNoCoil.coilCost, 3.75 * 1.15 * (21 / 12) * 71.09, "no coil row for the gauge: the catalog's rate on the 21\" coil");
@@ -208,7 +238,7 @@ for (const name of listedProfiles(DEFAULT_CATALOG)) {
   }
 }
 close(price(run({ profile: SS450, width: panelPanForCoil(panelCoilForPan(17, 4.125), 4.125), coilWidth: panelCoilForPan(17, 4.125), height: 853.08 }), "tier2"),
-  3.4125 * (21.125 / 12) * 1.15 * 71.09 + 200 + 15, "a typed 17\" SS450 pan is priced on its 21.125\" coil");
+  (3.4125 * (21.125 / 12) * 1.15 + 1.15) * 71.09 + 15, "a typed 17\" SS450 pan is priced on its 21.125\" coil");
 
 // One set of panel fields for the estimate on the screen, the order sent and the Job Vault
 // save (App.jsx builds all three with panelOrderFields(panelForm)). The shared quantity the
@@ -226,13 +256,13 @@ assert.equal(saved.quantity, 1, "and so is the Job Vault save");
 assert.equal(sent.coilWidth, 21, "the order stores the coil width");
 assert.equal(panelOrderProblem(sent), null, "and passes the server's check");
 const estimate = computePrice(draft, DEFAULT_PRICE_LIST, DEFAULT_COIL_WIDTH_SCALE, "tier2");
-assert.equal(Math.round(estimate * 100) / 100, 703.22, "the form's Total Price (the estimate) for the default FF100 order is $703.22");
+assert.equal(Math.round(estimate * 100) / 100, 584.98, "the form's Total Price (the estimate) for the default FF100 order is $584.98");
 close(computePrice(sent, DEFAULT_PRICE_LIST, DEFAULT_COIL_WIDTH_SCALE, "tier2"), estimate, "the order's price is the estimate shown");
 close(computePrice(saved, DEFAULT_PRICE_LIST, DEFAULT_COIL_WIDTH_SCALE, "tier2"), estimate, "and so is the Job Vault save's");
 close(panelPriceParts(draft, DEFAULT_PRICE_LIST, "tier2").total, estimate, "the reference rates on the form add up to it");
 const onSite = panelOrderFields({ ...form, runLocation: "Job Site", jobSiteMiles: "50" });
 assert.equal(onSite.jobSiteMiles, 50, "job-site miles go in as a number");
-close(computePrice(onSite, DEFAULT_PRICE_LIST, DEFAULT_COIL_WIDTH_SCALE, "tier2"), coilPerFt21 * 71.09 + 600 + 20 + 15, "and are charged past 40");
+close(computePrice(onSite, DEFAULT_PRICE_LIST, DEFAULT_COIL_WIDTH_SCALE, "tier2"), 600 + 20 + 15, "and are charged past 40 (71.09 ft on site is under the $600 minimum)");
 // App.jsx builds the estimate, the order and the Job Vault save with this helper, and the
 // Total Price box shows the estimate: if that wiring changes, these checks no longer cover it.
 const appSrc = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");

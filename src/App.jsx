@@ -4,7 +4,7 @@ import * as THREE from "three";
 import { storage, shopStorage } from "./lib/storage";
 import { supabase } from "./lib/supabaseClient";
 import { useAuth } from "./lib/AuthProvider";
-import { scupperSpec, scupperBack, MILEAGE_FREE, MILEAGE_RATE, mileageCharge, coilPriceForWidth, getSellRates, computePrice, panelPriceParts, panelCoilWidthIn, panelOrderProblem, panelOrderFields, panelPanForCoil, panelCoilForPan, panelRunText, orderAmountText, panelReorderNote, sellRate, sellTierFor, DEFAULT_PRICE_LIST, DEFAULT_COIL_WIDTH_SCALE } from "../supabase/functions/_shared/pricing.mjs";
+import { scupperSpec, scupperBack, MILEAGE_FREE, MILEAGE_RATE, mileageCharge, coilPriceForWidth, getSellRates, computePrice, panelPriceParts, panelCoilWidthIn, panelOrderProblem, panelOrderFields, panelPanForCoil, panelCoilForPan, panelRunText, orderAmountText, panelReorderNote, paintFor, sellRate, sellTierFor, DEFAULT_PRICE_LIST, DEFAULT_COIL_WIDTH_SCALE } from "../supabase/functions/_shared/pricing.mjs";
 import { DEFAULT_CATALOG, listedProfiles, resolveCatalog, readTakeup, getColorsForBrand as catalogColorsForBrand, findColor as catalogFindColor, findGauge as catalogFindGauge, findPaint as catalogFindPaint } from "../supabase/functions/_shared/catalog.mjs";
 import { loadPlatformCatalog, loadPlatformCatalogRows, invalidatePlatformCatalog, addCatalogItem, setCatalogItemDelisted, setCatalogItemData, loadShopCatalogSelection } from "./lib/catalog";
 
@@ -3773,7 +3773,7 @@ function PlatformCatalogSection({ theme, userId, onChanged }) {
             <div style={{ ...small, fontWeight: 700, marginBottom: 2 }}>{set === "painted" ? "Painted steel — every paint line" : set}</div>
             {of("gauge", set).map((g) => (
               <div key={rid(g)} style={rowLine}>
-                <span style={{ ...nameStyle(g), flex: 1 }}>{g.data?.label || g.key}{tag(g)} <span style={{ ...small, fontWeight: 400 }}>{g.key} · fallback ${g.data?.panelSqft}/sq ft panel · ${g.data?.trimFt}/ft trim</span></span>
+                <span style={{ ...nameStyle(g), flex: 1 }}>{g.data?.label || g.key}{tag(g)} <span style={{ ...small, fontWeight: 400 }}>{g.key} · fallback ${g.data?.panelSqft}/sq ft of coil · ${g.data?.trimFt}/ft trim</span></span>
                 {toggleBtn(g)}
               </div>
             ))}
@@ -5513,7 +5513,7 @@ export default function ShopOrderApp() {
 
   const colorObj = findColor(colorName, brand, paintId);
   const activeGauge = findGauge(gaugeId, brand);
-  const activePaint = brand === "Copper" ? { mult: 1 } : (catalogFindPaint(activeCatalog, paintId) || activeCatalog.paints[0]);
+  const activePaint = paintFor(brand, paintId, activeCatalog);
   const activePremiumMult = colorObj?.premium ? 1.12 : 1;
   const activeRates = getSellRates(gaugeId, brand, priceList, profile, sellTier);
   const ratePerSqft = activeRates.coilSqft * activePaint.mult * activePremiumMult;
@@ -7715,7 +7715,7 @@ export default function ShopOrderApp() {
                 {!isDemo && !coilOverMax && (
                   <div data-testid="panel-rate-note" style={{ fontSize: 10, color: theme.textSecondary, marginTop: 4 }}>
                     Coil and fabrication are per foot of panel, for reference — coil is the full {+panelParts.coilIn.toFixed(3)}" coil, takeup included.
-                    {" "}Total Price is what the order costs: those rates × the length, the fabrication minimum ($200 shop-rolled · $600 on site) when it's more, any premium-color or mileage charge, and a $15 order charge.
+                    {" "}Total Price is what the order costs: those rates × the length — or the run minimum ($200 shop-rolled · $600 on site) when they come to less{panelParts.atMin ? ", as this run does" : ""} — plus any premium-color or mileage charge and a $15 order charge.
                   </div>
                 )}
 

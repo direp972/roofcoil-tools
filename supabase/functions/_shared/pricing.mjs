@@ -205,6 +205,15 @@ export function getSellRates(gaugeId, brand, priceList, profile, tier, catalog =
   return { coilSqft, panelSqft, fabSqft, fabFt, trimFt };
 }
 
+// The paint a metal is charged for. Unpainted metals (Galvalume, Bonderized, G90, copper —
+// the catalog's unpainted list) carry no paint, so no paint multiplier, whatever paint id the
+// form last held: the app keeps the painted side's PVDF when Unpainted is picked, and that
+// used to add ×1.15 to mill-finish metal.
+export function paintFor(brand, paintId, catalog = DEFAULT_CATALOG) {
+  if (brand === "Copper" || (catalog?.unpainted || []).includes(brand)) return { mult: 1 };
+  return findPaint(catalog, paintId) || catalog.paints[0];
+}
+
 /* ------------------------------------- panels ------------------------------------- */
 // A panel order is one run of one profile: `width` is the finished pan width, `height` the
 // whole length of panel in inches (every panel in the order end to end), `quantity` is 1,
@@ -263,9 +272,11 @@ export function panelOrderFields(f) {
 //   Fabrication: the Price List's fabrication row is dollars per linear foot of panel, and
 //   that is what is charged — not spread over the coil row's width and not marked up for
 //   paint, which is metal, not roll-forming.
+//   Run minimum: the run is charged the coil and fabrication together, or the minimum
+//   ($200 shop-rolled, $600 on a job site) when they come to less — never both.
 export function panelPriceParts(order, priceList, tier, catalog = DEFAULT_CATALOG) {
   const rates = getSellRates(order.gaugeId, order.brand, priceList, order.profile, tier, catalog);
-  const paint = order.brand === "Copper" ? { mult: 1 } : (findPaint(catalog, order.paintId) || catalog.paints[0]);
+  const paint = paintFor(order.brand, order.paintId, catalog);
   const colorObj = findColor(catalog, order.colorName, order.brand, order.paintId);
   const premiumMult = colorObj?.premium ? 1.12 : 1;
   const coilIn = panelCoilWidthIn(order, catalog);
@@ -274,13 +285,15 @@ export function panelPriceParts(order, priceList, tier, catalog = DEFAULT_CATALO
   const fabPerFt = rates.fabFt || 0;                             // $ per foot of panel
   const coilCost = coilPerFt * runFt;
   const fabCost = fabPerFt * runFt;
-  // Fabrication minimums: hauling the roll former to a job site floors the fabrication
-  // charge at $600; shop-rolled runs floor at $200.
-  const fabMin = order.runLocation === "Job Site" ? 600 : 200;
+  // Run minimum: a gate, not a charge on top. A run whose coil and fabrication come to less
+  // than $200 shop-rolled ($600 on a job site, for hauling the roll former) is charged the
+  // minimum; past it, the run is the coil and fabrication at their per-foot rates.
+  const runMin = order.runLocation === "Job Site" ? 600 : 200;
+  const atMin = coilCost + fabCost < runMin;
   // $2/mile one way past 40 miles from the nearest roll-forming base
   const mileage = order.runLocation === "Job Site" ? mileageCharge(order.jobSiteMiles) : 0;
-  const base = coilCost + Math.max(fabCost, fabMin) + mileage;
-  return { coilIn, runFt, coilPerFt, fabPerFt, coilCost, fabCost, fabMin, mileage, premiumMult, total: Math.max(15, base * premiumMult + 15) };
+  const base = Math.max(coilCost + fabCost, runMin) + mileage;
+  return { coilIn, runFt, coilPerFt, fabPerFt, coilCost, fabCost, runMin, atMin, mileage, premiumMult, total: Math.max(15, base * premiumMult + 15) };
 }
 
 // Feet and inches from inches, as the shop reads a length: 853.08 -> 71' 1", 240 -> 20'.
@@ -350,7 +363,7 @@ export function panelOrderProblem(order, catalog = DEFAULT_CATALOG) {
 
 export function computePrice(order, priceList, coilWidthScale, tier, catalog = DEFAULT_CATALOG) {
   const rates = getSellRates(order.gaugeId, order.brand, priceList, order.profile, tier, catalog);
-  const paint = order.brand === "Copper" ? { mult: 1 } : (findPaint(catalog, order.paintId) || catalog.paints[0]);
+  const paint = paintFor(order.brand, order.paintId, catalog);
   const colorObj = findColor(catalog, order.colorName, order.brand, order.paintId);
   const premiumMult = colorObj?.premium ? 1.12 : 1;
   if (order.type === "metal") {
