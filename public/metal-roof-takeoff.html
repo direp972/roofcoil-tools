@@ -443,7 +443,7 @@ html[data-signed-in] .when-out{display:none!important}
   <p class="tk-note">Clips at 1 per 2 ft of seam, as the takeoff orders them (tighten for your wind zone); flange panels (FF100) screw 12" on center along the flange instead. Square feet and coil are before waste.</p>
 
   <h2 class="sec" id="coverage">Standing seam coverage by coil width</h2>
-  <p class="tk-p" id="systems">The takeoff figures seven panel systems and carries the clip SKUs, box counts and seam take-ups for each, so the panel count and the clip order follow the system you pick. A roll-formed panel's coverage is the coil width minus what its seams take up; these are the take-ups the takeoff uses, the roll-former makers' published figures. Your machine's tooling sets the real number, so check it before you order coil.</p>
+  <p class="tk-p" id="systems">The takeoff figures seven panel systems and carries the clip SKUs, box counts and seam take-ups for each, so the panel count and the clip order follow the system you pick. A roll-formed panel's coverage is the coil width minus what its seams take up; these are the take-ups the takeoff uses, the roll-former makers' published figures, but for FF100, which is our own tooling's measured 4" (a 21" coil makes a 17" panel). Your machine's tooling sets the real number, so check it before you order coil.</p>
   <div class="tk-tbl"><table>
     <caption>Finished coverage, inches</caption>
     <tr><th>Profile</th><th>Seam</th><th class="n">Take-up</th><th class="n">16" coil</th><th class="n">21" coil</th><th class="n">24" coil</th></tr>
@@ -455,7 +455,7 @@ html[data-signed-in] .when-out{display:none!important}
     <tr><td>SS150</td><td>1.5" mechanical</td><td class="n">4"</td><td class="n">12"</td><td class="n">17"</td><td class="n">20"</td></tr>
     <tr><td>SSQ200</td><td>2" mechanical</td><td class="n">5-13/16"</td><td class="n">10-3/16"</td><td class="n">15-3/16"</td><td class="n">18-3/16"</td></tr>
     <tr class="grp"><td colspan="6">Flange &amp; exposed fastener</td></tr>
-    <tr><td>FF100</td><td>1" snap-lock, slotted flange</td><td class="n">4-1/16"</td><td class="n">11-15/16"</td><td class="n">16-15/16"</td><td class="n">19-15/16"</td></tr>
+    <tr><td>FF100</td><td>1" snap-lock, slotted flange</td><td class="n">4"</td><td class="n">12"</td><td class="n">17"</td><td class="n">20"</td></tr>
     <tr><td>PBR / R-panel</td><td>Exposed fastener</td><td class="n">—</td><td class="n" colspan="3">36" coverage, factory-formed</td></tr>
   </table></div>
   <p class="tk-note">The same 21" coil covers 16-7/8" as SS450 but 15-3/16" as SSQ200, so the mechanical seam roof needs about 11% more panels. Which seam to run: <a href="/articles/snap-lock-vs-mechanical-seam.html">snap-lock vs mechanical seam</a>. Compare every profile listed shops roll in the <a href="/panels">panel lineup</a>.</p>
@@ -584,7 +584,7 @@ html[data-signed-in] .when-out{display:none!important}
     { id: 'ss100', name: 'SS100 · 1" double-lock', up: 3, clip: 'FG-100-24', box: 1000 },
     { id: 'ss150', name: 'SS150 · 1.5" mechanical', up: 4, clip: 'FG-158-24', box: 500 },
     { id: 'ssq200', name: 'SSQ200 · 2" mechanical', up: 5.8125, clip: 'FG-218-24', box: 300 },
-    { id: 'ff100', name: 'FF100 · 1" slotted flange', up: 4.0625, flange: true },
+    { id: 'ff100', name: 'FF100 · 1" slotted flange', up: 4, flange: true },
     { id: 'pbr', name: 'PBR / R-panel · 36" coverage', fixed: 36 }
   ];
   var $ = function (id) { return document.getElementById(id); };
