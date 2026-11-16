@@ -166,15 +166,13 @@ export function findFabItem(priceList, profile, tier) {
   return (code && fabItems.find((p) => p.name.toLowerCase().startsWith(code))) || fabItems.find((p) => p.name.toLowerCase().startsWith("panel")) || fabItems[0] || null;
 }
 
-// perPanelSqft marks a coilSqft that is the catalog's own gauge rate, which the catalog lists
-// per sq ft of finished panel (an all-in panel rate, with no fabrication row beside it):
-// Galvalume, Bonderized and G90 always, Copper without a Price List row, and any metal while
-// the Price List is empty or lacks that gauge's coil row. A panel bills it on the pan, as it
-// is listed. A Price List metal row (a gauge's coil row, a copper weight's row) is a rate for
-// the metal itself, and a panel bills it on the coil fed — see panelPriceParts.
+// coilSqft is the metal's rate per sq ft: a Price List metal row (a gauge's coil row, a copper
+// weight's row), else the catalog's own gauge rate (Galvalume, Bonderized and G90 always,
+// Copper without a Price List row, and any metal while the Price List is empty or lacks that
+// gauge's coil row). Every panel bills it on the coil fed — see panelPriceParts.
 export function getSellRates(gaugeId, brand, priceList, profile, tier, catalog = DEFAULT_CATALOG) {
   const gauge = findGauge(catalog, gaugeId, brand);
-  const fallback = { coilSqft: gauge.panelSqft, panelSqft: gauge.panelSqft, fabSqft: 0, trimFt: gauge.trimFt, perPanelSqft: true };
+  const fallback = { coilSqft: gauge.panelSqft, panelSqft: gauge.panelSqft, fabSqft: 0, trimFt: gauge.trimFt };
   if (!priceList || priceList.length === 0) return fallback;
 
   if (brand === "Copper") {
@@ -204,7 +202,7 @@ export function getSellRates(gaugeId, brand, priceList, profile, tier, catalog =
   const fabSqft = fabFt / (coilWidthIn / 12);
   const panelSqft = coilSqft + fabSqft;
   const trimFt = trimItem ? sellRate(trimItem, tier) : fallback.trimFt;
-  return { coilSqft, panelSqft, fabSqft, fabFt, trimFt, ...(coilItem ? {} : { perPanelSqft: true }) };
+  return { coilSqft, panelSqft, fabSqft, fabFt, trimFt };
 }
 
 /* ------------------------------------- panels ------------------------------------- */
@@ -216,13 +214,23 @@ export function getSellRates(gaugeId, brand, priceList, profile, tier, catalog =
 export const PANEL_MAX_COIL_IN = 24; // wider coil is quoted by the shop, not priced online
 
 // The coil a panel order is rolled from, in inches: the coil width the order carries (panel
-// orders store it from this release on), else the pan width plus the profile's takeup, for
-// orders written before that.
+// orders store it from this release on), else the coil rebuilt from its pan width, for orders
+// written before that (panelCoilFromStoredPan).
 export function panelCoilWidthIn(order, catalog = DEFAULT_CATALOG) {
   const stored = Number(order?.coilWidth);
   if (Number.isFinite(stored) && stored > 0) return stored;
   const takeup = Number(catalog?.profiles?.[order?.profile]?.takeup) || 0;
-  return (Number(order?.width) || 0) + takeup;
+  return panelCoilFromStoredPan(order?.width, takeup);
+}
+
+// The coil an order that stored only its pan was rolled from: the pan plus the takeup, on the
+// sixteenth when that coil makes the same pan. The pan was stored to the hundredth, so 16.88"
+// of SS450 (4.125" takeup) came off a 21" coil, not a 21.005" one; a pan no sixteenth gives
+// back (16.9" of SS450) keeps its exact coil, 21.025".
+export function panelCoilFromStoredPan(panIn, takeup) {
+  const pan = Math.round((+panIn || 0) * 100) / 100;
+  const c16 = Math.round(((+panIn || 0) + (+takeup || 0)) * 16) / 16;
+  return panelPanForCoil(c16, takeup) === pan ? c16 : panelCoilForPan(panIn, takeup);
 }
 
 // The pan a coil makes, and the coil a pan needs, for the panel form. The pan is kept to the
@@ -248,12 +256,10 @@ export function panelOrderFields(f) {
 // The pieces of a panel price, so the panel calculator shows the rates the total is built
 // from and computePrice adds up exactly the same numbers.
 //   Coil: the metal fed through the roll former — coil width × length, takeup included —
-//   at the Price List coil rate for the gauge, times the paint multiplier. (It used to be
-//   the pan's coverage × length, so the takeup's metal was never charged: a 21" coil formed
-//   to a 17" FF100 pan billed 17" of metal.) A Price List copper row is a rate for the copper
-//   itself and is billed the same way. A rate the catalog lists per sq ft of finished panel
-//   (perPanelSqft: Galvalume, Bonderized, G90, and any metal with no Price List row) is
-//   billed on the pan, as listed — billIn is the width the metal is billed on.
+//   at the metal's rate (getSellRates' coilSqft), times the paint multiplier. Every metal is
+//   billed this way: painted steel, Galvalume, Bonderized, G90 and copper, from a Price List
+//   row or the catalog's own rate. (It used to be the pan's coverage × length, so the
+//   takeup's metal was never charged: a 21" coil formed to a 17" FF100 pan billed 17".)
 //   Fabrication: the Price List's fabrication row is dollars per linear foot of panel, and
 //   that is what is charged — not spread over the coil row's width and not marked up for
 //   paint, which is metal, not roll-forming.
@@ -263,10 +269,8 @@ export function panelPriceParts(order, priceList, tier, catalog = DEFAULT_CATALO
   const colorObj = findColor(catalog, order.colorName, order.brand, order.paintId);
   const premiumMult = colorObj?.premium ? 1.12 : 1;
   const coilIn = panelCoilWidthIn(order, catalog);
-  const perPanelSqft = !!rates.perPanelSqft;
-  const billIn = perPanelSqft ? (Number(order.width) || 0) : coilIn;
   const runFt = (order.height / 12) * order.quantity;           // feet of panel, and of coil
-  const coilPerFt = rates.coilSqft * (billIn / 12) * paint.mult; // $ per foot of panel for the metal
+  const coilPerFt = rates.coilSqft * (coilIn / 12) * paint.mult; // $ per foot of panel for the coil
   const fabPerFt = rates.fabFt || 0;                             // $ per foot of panel
   const coilCost = coilPerFt * runFt;
   const fabCost = fabPerFt * runFt;
@@ -276,7 +280,7 @@ export function panelPriceParts(order, priceList, tier, catalog = DEFAULT_CATALO
   // $2/mile one way past 40 miles from the nearest roll-forming base
   const mileage = order.runLocation === "Job Site" ? mileageCharge(order.jobSiteMiles) : 0;
   const base = coilCost + Math.max(fabCost, fabMin) + mileage;
-  return { coilIn, billIn, perPanelSqft, runFt, coilPerFt, fabPerFt, coilCost, fabCost, fabMin, mileage, premiumMult, total: Math.max(15, base * premiumMult + 15) };
+  return { coilIn, runFt, coilPerFt, fabPerFt, coilCost, fabCost, fabMin, mileage, premiumMult, total: Math.max(15, base * premiumMult + 15) };
 }
 
 // Feet and inches from inches, as the shop reads a length: 853.08 -> 71' 1", 240 -> 20'.

@@ -3,7 +3,7 @@
 // Run: node scripts/pricing-check.mjs   (exits non-zero on the first failing check)
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { computePrice, getSellRates, sellTierFor, sellRate, panelPriceParts, panelCoilWidthIn, panelOrderProblem, panelOrderFields, panelPanForCoil, panelCoilForPan, panelRunText, orderAmountText, panelReorderNote, feetInches, PANEL_MAX_COIL_IN, DEFAULT_PRICE_LIST, DEFAULT_COIL_WIDTH_SCALE } from "../supabase/functions/_shared/pricing.mjs";
+import { computePrice, getSellRates, sellTierFor, sellRate, panelPriceParts, panelCoilWidthIn, panelCoilFromStoredPan, panelOrderProblem, panelOrderFields, panelPanForCoil, panelCoilForPan, panelRunText, orderAmountText, panelReorderNote, feetInches, PANEL_MAX_COIL_IN, DEFAULT_PRICE_LIST, DEFAULT_COIL_WIDTH_SCALE } from "../supabase/functions/_shared/pricing.mjs";
 import { DEFAULT_CATALOG, findGauge, findColor, findPaint, listedProfiles, clipSpecForProfile, catalogToRows, catalogFromRows, isUsableCatalog, resolveCatalog, isOffered, getColorsForBrand, readTakeup } from "../supabase/functions/_shared/catalog.mjs";
 import "../public/catalog-colors.js"; // the public pages' color index (globalThis.rcCatalogColorsFromRows)
 
@@ -113,7 +113,7 @@ close(price(run({ profile: FF100, width: 17, coilWidth: 21, height: 853.08, colo
 // takeup from the catalog passed in (orders sent before coil widths were stored).
 assert.equal(panelCoilWidthIn({ profile: FF100, width: 17, coilWidth: 21 }), 21, "stored coil width");
 assert.equal(panelCoilWidthIn({ profile: FF100, width: 17 }), 21, "FF100: 17\" pan + 4\" takeup");
-close(panelCoilWidthIn({ profile: SS450, width: 16.88 }), 21.005, "an old SS450 order rebuilt from its rounded pan width");
+assert.equal(panelCoilWidthIn({ profile: SS450, width: 16.88 }), 21, "an old SS450 order rebuilt from its rounded pan width, on the sixteenth");
 close(price(run({ profile: FF100, width: 17, height: 853.08 }), "tier2"), price(ffDefault, "tier2"), "no coil width: the catalog's takeup gives the same 21\"");
 const staleRows = catalogToRows(DEFAULT_CATALOG).map((r) => (r.kind === "profile" && r.key === FF100 ? { ...r, data: { ...r.data, takeup: 4.0625 } } : r));
 const stale = catalogFromRows(staleRows); // the live row as it stood before the FF100 update
@@ -136,53 +136,59 @@ assert.match(panelOrderProblem({ ...ffDefault, height: 0 }), /length/, "no lengt
 assert.match(panelOrderProblem({ ...ffDefault, coilWidth: "21" }), /coil width/, "a coil width that isn't a number");
 assert.match(panelOrderProblem({ ...ffDefault, profile: undefined }), /profile/, "no profile");
 
-// Which width the metal is billed on follows how its rate is listed. A Price List coil row
-// ($/LF at its Coil Size) and a Price List copper row ($ per sq ft of copper) are rates for
-// the metal, billed on the coil fed. Galvalume, Bonderized and G90 have no Price List rows:
-// they price from the catalog's gauge rate, which the catalog lists per sq ft of finished
-// panel (Platform → catalog: "fallback $3.45/sq ft panel"), so a panel bills it on the pan,
-// as it always did — the same price as before the coil-fed change, at quantity 1.
+// Every metal is billed on the coil fed, not the finished panel: painted steel at its Price
+// List coil row, copper at its Price List row, and Galvalume, Bonderized and G90 (no Price
+// List rows) at the catalog's gauge rate — each × coil width × length, takeup included.
 const SSQ200 = 'SSQ200 – 2" Mechanical Seam';
 const bare = (brand, colorName, o) => run({ brand, colorName, gaugeId: "24ga", paintId: "smp", ...o });
 const galvFF = bare("Galvalume", "Galvalume (Mill Finish)", { profile: FF100, width: 17, coilWidth: 21, height: 853.08 });
 const galvParts = panelPriceParts(galvFF, DEFAULT_PRICE_LIST, "tier2");
-assert.equal(galvParts.perPanelSqft, true, "Galvalume prices from the catalog's per-sq-ft-of-panel rate");
-assert.equal(galvParts.billIn, 17, "so its metal is billed on the 17\" pan");
-assert.equal(galvParts.coilIn, 21, "while its coil pull is still the 21\" coil");
-close(price(galvFF, "tier2"), 3.45 * (17 * 853.08 / 144) + 200 + 15, "Galvalume FF100 default order: $3.45 × 100.71 finished sq ft + $200 + $15");
-assert.equal(Math.round(price(galvFF, "tier2") * 100) / 100, 562.45, "Galvalume FF100 default order is $562.45, as before");
+assert.equal(galvParts.coilIn, 21, "Galvalume FF100 is rolled from the 21\" coil");
+assert.equal("billIn" in galvParts || "perPanelSqft" in galvParts, false, "no metal is billed on the pan any more");
+close(galvParts.coilCost, 3.45 * (21 / 12) * 71.09, "Galvalume: $3.45/sq ft × 21\" of coil × 71.09 ft");
+close(price(galvFF, "tier2"), 3.45 * (21 * 853.08 / 144) + 200 + 15, "Galvalume FF100 default order: $3.45 × 124.41 sq ft of coil + $200 + $15");
 const galvSSQ = bare("Galvalume", "Galvalume (Mill Finish)", { profile: SSQ200, width: 15.19, coilWidth: 21, height: 853.08 });
-assert.equal(Math.round(price(galvSSQ, "tier2") * 100) / 100, 525.46, "Galvalume SSQ200 default order is $525.46, as before");
-assert.equal(Math.round(price({ ...galvFF, height: 6960 }, "tier2") * 100) / 100, 3049.75, "580 ft of Galvalume FF100 is $3,049.75, as before");
+close(price(galvSSQ, "tier2"), price(galvFF, "tier2"), "Galvalume SSQ200 on the same 21\" coil costs the same as FF100: the coil is what's billed");
 for (const [brand, colorName] of [["Bonderized", "Bonderized (Mill Finish)"], ["G90 Galvanized", "G90 Galvanized (Mill Finish)"]]) {
   const o = bare(brand, colorName, { profile: FF100, width: 17, coilWidth: 21, height: 853.08 });
   const g = findGauge(DEFAULT_CATALOG, "24ga", brand);
-  assert.equal(panelPriceParts(o, DEFAULT_PRICE_LIST, "tier2").perPanelSqft, true, `${brand} is per sq ft of panel`);
-  close(price(o, "tier2"), g.panelSqft * (17 * 853.08 / 144) + 200 + 15, `${brand} FF100 bills its rate on the pan`);
+  close(price(o, "tier2"), g.panelSqft * (21 * 853.08 / 144) + 200 + 15, `${brand} FF100 bills its rate on the 21" coil`);
 }
 // Copper's Price List row is a rate for the copper, billed on the copper fed: 16 oz at $17.50
-// a sq ft (tier2) × 21" × 580 ft. This one went up with the coil-fed change, from $14,594.17
-// (17" of copper billed) to $17,977.50.
+// a sq ft (tier2) × 21" × 580 ft.
 const cuFF = run({ brand: "Copper", colorName: "Natural Copper (Mill Finish)", gaugeId: "16oz", paintId: "pvdf", profile: FF100, width: 17, coilWidth: 21, height: 6960 });
 const cuParts = panelPriceParts(cuFF, DEFAULT_PRICE_LIST, "tier2");
-assert.equal(cuParts.perPanelSqft, false, "copper with a Price List row is billed on the coil fed");
 close(cuParts.coilCost, 17.50 * (21 / 12) * 580, "copper: $17.50/sq ft × 21\" × 580 ft, no paint");
 assert.equal(Math.round(cuParts.total * 100) / 100, 17977.50, "580 ft of copper FF100 is $17,977.50");
 const noCopperRow = DEFAULT_PRICE_LIST.filter((p) => p.category !== "Copper");
 const cuNoRow = panelPriceParts(cuFF, noCopperRow, "tier2");
-assert.equal(cuNoRow.perPanelSqft, true, "copper without a Price List row prices from the catalog's per-panel rate");
-close(cuNoRow.coilCost, 14.50 * (17 / 12) * 580, "and bills it on the pan");
+close(cuNoRow.coilCost, 14.50 * (21 / 12) * 580, "copper without a Price List row: the catalog's rate, on the 21\" coil");
 // A painted panel with nothing in the Price List (or no coil row for its gauge) falls back to
-// the catalog's per-panel rate too, billed on the pan.
+// the catalog's gauge rate, on the coil fed too.
 const ffEmpty = panelPriceParts(ffDefault, [], "tier2");
-assert.equal(ffEmpty.perPanelSqft, true, "an empty Price List prices from the catalog's per-panel rate");
-close(ffEmpty.total, 3.75 * 1.15 * (17 * 853.08 / 144) + 200 + 15, "on the pan, × PVDF");
+close(ffEmpty.total, 3.75 * 1.15 * (21 * 853.08 / 144) + 200 + 15, "an empty Price List: the catalog's rate on the 21\" coil, × PVDF");
 const noCoilRow = DEFAULT_PRICE_LIST.filter((p) => p.name !== "24 Gauge Coil (per linear ft)");
 const ffNoCoil = panelPriceParts(ffDefault, noCoilRow, "tier2");
-assert.equal(ffNoCoil.perPanelSqft, true, "no coil row for the gauge: the catalog's per-panel rate");
-close(ffNoCoil.coilCost, 3.75 * 1.15 * (17 / 12) * 71.09, "billed on the pan");
+close(ffNoCoil.coilCost, 3.75 * 1.15 * (21 / 12) * 71.09, "no coil row for the gauge: the catalog's rate on the 21\" coil");
 close(ffNoCoil.fabPerFt, 1.15, "with the Price List's fabrication row still per foot of panel");
-assert.ok(!panelPriceParts(ffDefault, DEFAULT_PRICE_LIST, "tier2").perPanelSqft, "a painted panel with its coil row is billed on the coil fed");
+// Wider coil, more metal: the same 71.09 ft of panel off a 24" coil costs more than off a 21".
+for (const [brand, colorName, gaugeId, paintId] of [["Fortified", "Regal White", "24ga", "pvdf"], ["Galvalume", "Galvalume (Mill Finish)", "24ga", "smp"], ["Copper", "Natural Copper (Mill Finish)", "16oz", "pvdf"]]) {
+  const base = { ...ffDefault, brand, colorName, gaugeId, paintId };
+  const c21 = panelPriceParts({ ...base, coilWidth: 21, width: 17 }, DEFAULT_PRICE_LIST, "tier2");
+  const c24 = panelPriceParts({ ...base, coilWidth: 24, width: 20 }, DEFAULT_PRICE_LIST, "tier2");
+  close(c24.coilCost / c21.coilCost, 24 / 21, `${brand}: the coil charge follows the coil width`);
+}
+
+// An order sent before panel orders stored their coil carries only its pan, stored to the
+// hundredth: its coil is rebuilt on the sixteenth when that makes the same pan.
+assert.equal(panelCoilFromStoredPan(16.88, 4.125), 21, "16.88\" of SS450 came off a 21\" coil, not 21.005\"");
+assert.equal(panelCoilFromStoredPan(15.19, 5.8125), 21, "15.19\" of SSQ200 came off a 21\" coil, not 21.0025\"");
+assert.equal(panelCoilFromStoredPan(17, 4), 21, "17\" of FF100: 21\"");
+assert.equal(panelCoilFromStoredPan(16.9, 4.125), 21.025, "a pan no sixteenth gives back keeps its exact coil");
+assert.equal(panelCoilWidthIn({ profile: SS450, width: 16.88 }, DEFAULT_CATALOG), 21, "an older SS450 order without a coil reads as a 21\" coil");
+assert.equal(panelCoilWidthIn({ profile: SS450, width: 16.88, coilWidth: 21.125 }, DEFAULT_CATALOG), 21.125, "a stored coil is used as stored");
+assert.equal(panelPanForCoil(panelCoilWidthIn({ profile: SS450, width: 16.88 }, DEFAULT_CATALOG), 4.125), 16.88, "and the rebuilt coil makes the stored pan");
+assert.equal(panelOrderProblem({ ...ffDefault, profile: SS450, width: 16.88, coilWidth: panelCoilWidthIn({ profile: SS450, width: 16.88 }, DEFAULT_CATALOG) }), null, "a reorder on the rebuilt coil passes the server's pan check");
 
 // The panel form's pan and coil boxes. The pan is the coil less the takeup, to the hundredth
 // the form shows; a typed pan gives its coil to 1/10,000", so the pan worked back from that

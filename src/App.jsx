@@ -6058,7 +6058,12 @@ export default function ShopOrderApp() {
   };
 
   /* ---------- Job Vault ---------- */
-  const vaultCurrentPrice = (item) => computePrice(item.payload || {}, priceList, coilWidthScale, sellTier, activeCatalog);
+  // A panel saved with a panel count (before Length became the whole run) has no price today
+  // to set beside it: Load turns it into one run of its stored length (panelReorderNote), so
+  // it keeps its saved price and raises no alert until it's reloaded and saved again.
+  const vaultCurrentPrice = (item) => panelReorderNote(item.payload)
+    ? Number(item.saved_price)
+    : computePrice(item.payload || {}, priceList, coilWidthScale, sellTier, activeCatalog);
   // An item alerts when today's price is above the last price the member acknowledged
   // (or the price at save time, if they never dismissed an alert).
   const vaultIncrease = (item) => {
@@ -6231,9 +6236,10 @@ export default function ShopOrderApp() {
     } else if (kind === "panel") {
       if (p.profile) setProfile(p.profile);
       // width re-derives from coilWidth + profile; orders sent before panel orders stored
-      // their coil width carry only the pan width, so their coil is rebuilt from it
+      // their coil width carry only the pan width, so their coil is rebuilt from it — on the
+      // sixteenth when that makes the same pan (16.88" of SS450 reloads on a 21" coil)
       if (p.coilWidth != null) setCoilWidth(p.coilWidth);
-      else if (p.width != null) setCoilWidth(panelCoilForPan(p.width, activeCatalog.profiles[p.profile]?.takeup ?? 0));
+      else if (p.width != null) setCoilWidth(panelCoilWidthIn(p, activeCatalog));
       if (p.height != null) setHeight(p.height);
       setRibStyle(p.ribStyle ?? null);
       setClipRelief(p.clipRelief ?? null);
@@ -7673,11 +7679,11 @@ export default function ShopOrderApp() {
                       The two rates are what the total is built from, shown for reference; Total Price is
                       computePrice, the same number as the Estimated total and the price the server stores. */}
                   <label style={{ flex: 1, fontSize: 11, color: theme.textSecondary }}>
-                    {panelParts.perPanelSqft ? "Metal $/LF" : "Coil $/LF"}
+                    Coil $/LF
                     {coilOverMax ? (
                       <div className="mono" style={{ width: "100%", padding: 8, marginTop: 4, border: `1px solid ${coilGateColor}`, borderRadius: 6, fontSize: 13, background: theme.highlight, boxSizing: "border-box", color: coilGateColor, fontWeight: 700 }}>{coilGateText}</div>
                     ) : isDemo ? signUpBox() : (
-                      <div className="mono" data-testid="panel-coil-rate" title={panelParts.perPanelSqft ? `${+panelParts.billIn.toFixed(3)}" of finished panel per foot, at the catalog's rate per sq ft of panel` : `${+panelParts.coilIn.toFixed(3)}" of coil per foot of panel, takeup included`}
+                      <div className="mono" data-testid="panel-coil-rate" title={`${+panelParts.coilIn.toFixed(3)}" of coil per foot of panel, takeup included`}
                         style={{ width: "100%", padding: 8, marginTop: 4, border: `1px dashed ${theme.border}`, borderRadius: 6, fontSize: 14, boxSizing: "border-box", color: theme.textSecondary }}>
                         {priceText(panelParts.coilPerFt)}
                       </div>
@@ -7708,9 +7714,7 @@ export default function ShopOrderApp() {
                 )}
                 {!isDemo && !coilOverMax && (
                   <div data-testid="panel-rate-note" style={{ fontSize: 10, color: theme.textSecondary, marginTop: 4 }}>
-                    {panelParts.perPanelSqft
-                      ? <>Metal and fabrication are per foot of panel, for reference — {brand} is priced per sq ft of finished panel, so the metal is the {+panelParts.billIn.toFixed(3)}" pan.</>
-                      : <>Coil and fabrication are per foot of panel, for reference — coil is the full {+panelParts.coilIn.toFixed(3)}" coil, takeup included.</>}
+                    Coil and fabrication are per foot of panel, for reference — coil is the full {+panelParts.coilIn.toFixed(3)}" coil, takeup included.
                     {" "}Total Price is what the order costs: those rates × the length, the fabrication minimum ($200 shop-rolled · $600 on site) when it's more, any premium-color or mileage charge, and a $15 order charge.
                   </div>
                 )}
