@@ -1,7 +1,7 @@
 // The catalog: the paint lines and their colors, the bare metals, the gauges and their
 // fallback rates, the paint systems, the panel profiles, the clips and the accessories, as
-// data. Shared by the app (src/App.jsx) and the submit-order Edge Function through
-// pricing.mjs, so an order is priced against exactly the catalog the estimate used.
+// data. Shared by the app (src/App.jsx) and the submit-order and order-alert Edge Functions
+// through pricing.mjs, so an order is priced against exactly the catalog the estimate used.
 // DEFAULT_CATALOG is Fortified Sheet Metal's catalog as first seeded and what everything
 // falls back to; docs/catalog-as-data-design.md is the plan for the platform table and the
 // per-shop selection that replace it. Plain ESM with no imports: Vite bundles it into the

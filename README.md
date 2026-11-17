@@ -241,8 +241,9 @@ sheet over the chooser.
   tier prices stay in that payload because the app computes every estimate in the browser.
 - **Every estimate and order is priced at the account's assigned tier**, and the order's
   price is set on the server. The pricing code and the catalog it needs live in
-  `supabase/functions/_shared/pricing.mjs`, shared by the app and the `submit-order` Edge
-  Function: the app shows the estimate as the person types, and on Send the function
+  `supabase/functions/_shared/pricing.mjs` and `catalog.mjs`, shared by the app and the
+  `submit-order` and `order-alert` Edge Functions (deploy each with its `index.ts` and both
+  `_shared` files, `--no-verify-jwt`: order-alert is called by the database without a JWT): the app shows the estimate as the person types, and on Send the function
   prices the order again at that account's tier against the shop's live Price List, writes
   the row itself and replies with the real price. Once the build that calls it is live,
   apply `supabase/migrations/20261017200506_orders_server_priced.sql`, which drops the
