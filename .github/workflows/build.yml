@@ -21,6 +21,8 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      # the pricing math (tiers, panels on the coil fed, the server's panel checks); no network
+      - run: node scripts/pricing-check.mjs
       - run: npm run build
         env:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
