@@ -136,7 +136,7 @@ Deno.serve(async (req: Request) => {
       shopSelection(shopId),
     ]);
     // the shop's own catalog: the platform's with its switches and additions, exactly as the app resolved it
-    catalog = resolveCatalog(platform, selection);
+    catalog = resolveCatalog(platform, selection, shopId);
     if (tierErr) throw new Error(`shop_customers: ${tierErr.message}`);
     hadTierRow = !!shopCustomer;
     tier = sellTierFor(shopCustomer);
