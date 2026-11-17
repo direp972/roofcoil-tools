@@ -250,7 +250,9 @@ sheet over the chooser.
   `node scripts/pricing-check.mjs` checks the tier math against the seed price list, and
   the panel math: a panel order is one run (quantity 1, Length is the whole of it), every
   metal (painted, Galvalume, Bonderized, G90, copper) is billed on the coil fed (coil width ×
-  length, takeup included), not the finished panel, fabrication on the Price List's $/LF, and `submit-order` refuses a pan width that isn't
+  length, takeup included), not the finished panel, fabrication on the Price List's $/LF on
+  every metal (copper at twice it), the run charged coil + fabrication or the $200 shop /
+  $600 job-site minimum when that is more (never both), with no order charge on a panel, and `submit-order` refuses a pan width that isn't
   the coil minus the profile's takeup. It also checks the panel form's own pieces: the
   estimate, the order and the Job Vault save come from one `panelOrderFields`, a typed pan
   width keeps its coil, and the ticket, order lists, email and Reorder note read a panel as

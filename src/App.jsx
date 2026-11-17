@@ -7715,7 +7715,7 @@ export default function ShopOrderApp() {
                 {!isDemo && !coilOverMax && (
                   <div data-testid="panel-rate-note" style={{ fontSize: 10, color: theme.textSecondary, marginTop: 4 }}>
                     Coil and fabrication are per foot of panel, for reference — coil is the full {+panelParts.coilIn.toFixed(3)}" coil, takeup included.
-                    {" "}Total Price is what the order costs: those rates × the length — or the run minimum ($200 shop-rolled · $600 on site) when they come to less{panelParts.atMin ? ", as this run does" : ""} — plus any premium-color or mileage charge and a $15 order charge.
+                    {" "}Total Price is what the order costs: those rates × the length — or the run minimum ($200 shop-rolled · $600 on site) when they come to less{panelParts.atMin ? ", as this run does" : ""} — plus any premium-color or mileage charge.{brand === "Copper" ? " Copper is fabricated at twice the fabrication rate." : ""}
                   </div>
                 )}
 

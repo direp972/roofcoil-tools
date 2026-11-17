@@ -64,7 +64,7 @@ export const DEFAULT_PRICE_LIST = [
   // Roof Panel
   { id: "p1", category: "Roof Panel", name: '24 Gauge Coil (per linear ft)', derivedFromMaterialId: "m1", coverageWidth: 16, cost: 0, tier1: 4.10, tier2: 4.55, greenleaf: 3.95 },
   { id: "p2", category: "Roof Panel", name: '26 Gauge Coil (per linear ft)', cost: 0, tier1: 3.30, tier2: 3.65, greenleaf: 3.15 },
-  { id: "p1f", category: "Roof Panel", name: 'Panel Fabrication (per linear ft)', cost: 0, tier1: 1.00, tier2: 1.15, greenleaf: 0.65 },
+  { id: "p1f", category: "Roof Panel", name: 'Panel Fabrication (per linear ft)', cost: 0, tier1: 0.65, tier2: 0.65, greenleaf: 0.65 },
   { id: "p1f2", category: "Roof Panel", name: 'FWQ100 Fabrication (per linear ft)', cost: 0, tier1: 1.75, tier2: 2.00, greenleaf: 1.50 },
   { id: "p2b", category: "Roof Panel", name: "Flat Sheet Material (per sq ft)", cost: 0, tier1: 1.40, tier2: 1.40, greenleaf: 1.40 },
   { id: "p2c", category: "Roof Panel", name: "Flat Sheet Processing (per sheet)", cost: 0, tier1: 7.50, tier2: 7.50, greenleaf: 7.50 },
@@ -158,6 +158,9 @@ export function coilPriceForWidth(widthIn, scale) {
   return Math.max(0, bracket.pricePerFt);
 }
 
+// Copper panels pay this many times the fabrication row: copper is slower and harder to roll.
+export const COPPER_FAB_MULT = 2;
+
 // Fabrication $/LF from the Price List — a profile-specific row (name starting with
 // the profile code, e.g. "FWQ100 Fabrication") beats the generic "Panel Fabrication".
 export function findFabItem(priceList, profile, tier) {
@@ -174,15 +177,19 @@ export function getSellRates(gaugeId, brand, priceList, profile, tier, catalog =
   const gauge = findGauge(catalog, gaugeId, brand);
   const fallback = { coilSqft: gauge.panelSqft, panelSqft: gauge.panelSqft, fabSqft: 0, trimFt: gauge.trimFt };
   if (!priceList || priceList.length === 0) return fallback;
+  // Every panel is roll-formed, so every metal pays the Price List's fabrication $/LF (fabFt);
+  // copper pays COPPER_FAB_MULT times it. Only panels charge fabFt.
+  const fabRow = findFabItem(priceList, profile, tier);
+  const fabFtFor = (mult = 1) => (fabRow ? sellRate(fabRow, tier) * mult : 0);
 
   if (brand === "Copper") {
     const item = priceList.find((p) => p.category === "Copper" && p.name.toLowerCase().includes(gauge.label.toLowerCase()) && sellRate(p, tier) !== undefined);
-    if (!item) return fallback;
+    if (!item) return { ...fallback, fabFt: fabFtFor(COPPER_FAB_MULT) };
     const coilSqft = sellRate(item, tier);
-    return { coilSqft, panelSqft: coilSqft, fabSqft: 0, trimFt: fallback.trimFt };
+    return { coilSqft, panelSqft: coilSqft, fabSqft: 0, fabFt: fabFtFor(COPPER_FAB_MULT), trimFt: fallback.trimFt };
   }
   if (["G90 Galvanized", "Galvalume", "Bonderized"].includes(brand)) {
-    return fallback; // not in the Price List yet
+    return { ...fallback, fabFt: fabFtFor() }; // their metal is not in the Price List yet
   }
 
   const gaugeLabel = gauge.label; // "24 Gauge" or "26 Gauge"
@@ -191,7 +198,7 @@ export function getSellRates(gaugeId, brand, priceList, profile, tier, catalog =
   // raw coil/flat metal orders should only ever be charged the coil rate, never
   // fabrication, since nothing's being formed.
   const coilItem = priceList.find((p) => p.category === "Roof Panel" && p.name.startsWith(gaugeLabel) && sellRate(p, tier) !== undefined);
-  const fabItem = findFabItem(priceList, profile, tier);
+  const fabItem = fabRow;
   const trimItem = priceList.find((p) => p.category === "Trim / Flashing" && p.name.startsWith(gaugeLabel) && sellRate(p, tier) !== undefined);
 
   const coilWidthIn = coilItem?.coverageWidth || 12;
@@ -270,10 +277,11 @@ export function panelOrderFields(f) {
 //   row or the catalog's own rate. (It used to be the pan's coverage × length, so the
 //   takeup's metal was never charged: a 21" coil formed to a 17" FF100 pan billed 17".)
 //   Fabrication: the Price List's fabrication row is dollars per linear foot of panel, and
-//   that is what is charged — not spread over the coil row's width and not marked up for
-//   paint, which is metal, not roll-forming.
+//   that is what is charged, on every metal (copper at twice the row) — not spread over the
+//   coil row's width and not marked up for paint, which is metal, not roll-forming.
 //   Run minimum: the run is charged the coil and fabrication together, or the minimum
-//   ($200 shop-rolled, $600 on a job site) when they come to less — never both.
+//   ($200 shop-rolled, $600 on a job site) when they come to less — never both. A panel run
+//   carries no order charge on top.
 export function panelPriceParts(order, priceList, tier, catalog = DEFAULT_CATALOG) {
   const rates = getSellRates(order.gaugeId, order.brand, priceList, order.profile, tier, catalog);
   const paint = paintFor(order.brand, order.paintId, catalog);
@@ -293,7 +301,7 @@ export function panelPriceParts(order, priceList, tier, catalog = DEFAULT_CATALO
   // $2/mile one way past 40 miles from the nearest roll-forming base
   const mileage = order.runLocation === "Job Site" ? mileageCharge(order.jobSiteMiles) : 0;
   const base = Math.max(coilCost + fabCost, runMin) + mileage;
-  return { coilIn, runFt, coilPerFt, fabPerFt, coilCost, fabCost, runMin, atMin, mileage, premiumMult, total: Math.max(15, base * premiumMult + 15) };
+  return { coilIn, runFt, coilPerFt, fabPerFt, coilCost, fabCost, runMin, atMin, mileage, premiumMult, total: base * premiumMult };
 }
 
 // Feet and inches from inches, as the shop reads a length: 853.08 -> 71' 1", 240 -> 20'.
