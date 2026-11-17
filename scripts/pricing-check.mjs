@@ -3,7 +3,7 @@
 // Run: node scripts/pricing-check.mjs   (exits non-zero on the first failing check)
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { computePrice, panelPriceMath, getSellRates, sellTierFor, sellRate, panelPriceParts, panelCoilWidthIn, panelCoilFromStoredPan, panelOrderProblem, panelOrderFields, panelPanForCoil, panelCoilForPan, panelRunText, orderAmountText, panelReorderNote, paintFor, feetInches, PANEL_MAX_COIL_IN, DEFAULT_PRICE_LIST, DEFAULT_COIL_WIDTH_SCALE } from "../supabase/functions/_shared/pricing.mjs";
+import { computePrice, panelPriceMath, coilBandForWidth, coilBandRangeText, getSellRates, sellTierFor, sellRate, panelPriceParts, panelCoilWidthIn, panelCoilFromStoredPan, panelOrderProblem, panelOrderFields, panelPanForCoil, panelCoilForPan, panelRunText, orderAmountText, panelReorderNote, paintFor, feetInches, PANEL_MAX_COIL_IN, DEFAULT_PRICE_LIST, DEFAULT_COIL_WIDTH_SCALE } from "../supabase/functions/_shared/pricing.mjs";
 import { DEFAULT_CATALOG, findGauge, findColor, findPaint, listedProfiles, clipSpecForProfile, catalogToRows, catalogFromRows, isUsableCatalog, resolveCatalog, isOffered, getColorsForBrand, readTakeup } from "../supabase/functions/_shared/catalog.mjs";
 import "../public/catalog-colors.js"; // the public pages' color index (globalThis.rcCatalogColorsFromRows)
 
@@ -113,6 +113,14 @@ assert.equal(bandAt(21).coilBandIn, 21, "21\": the 21\" band");
 assert.equal(bandAt(21.0625).coilBandIn, 24, "21-1/16\": the 24\" band"); near(bandAt(21.0625).coilPerFt, 3.31, "$3.31");
 assert.equal(bandAt(24).coilBandIn, 24, "24\": the 24\" band");
 near(bandAt(12).coilPerFt, 2.56, "a 12\" coil is in the 16\" band");
+// The coil widths each seed band covers, to the hundredth of an inch.
+const rangeAt = (w) => coilBandRangeText(coilBandForWidth(w, DEFAULT_COIL_WIDTH_SCALE));
+assert.equal(rangeAt(12), 'up to 16.00"', "the 16\" band: up to 16.00\"");
+assert.equal(rangeAt(16), 'up to 16.00"', "16.00\" is in it");
+assert.equal(rangeAt(16.01), '16.01"\u201321.00"', "the 21\" band: 16.01\" to 21.00\"");
+assert.equal(rangeAt(21), '16.01"\u201321.00"', "21.00\" is in it");
+assert.equal(rangeAt(21.01), '21.01"\u201324.00"', "the 24\" band: 21.01\" to 24.00\"");
+assert.equal(rangeAt(24), '21.01"\u201324.00"', "24.00\" is in it");
 // A shop's own scale is the one used, on the app and on the server alike.
 const ownScale = [{ id: "a", width: 18, pricePerFt: 2.9 }, { id: "b", width: 24, pricePerFt: 3.6 }];
 near(computePrice(ffDefault, DEFAULT_PRICE_LIST, ownScale, "tier2"), (3.6 + FAB) * 71.09, "a shop's own scale: a 21\" coil in its 24\" band");
@@ -302,14 +310,14 @@ near(computePrice(onSite, DEFAULT_PRICE_LIST, DEFAULT_COIL_WIDTH_SCALE, "tier2")
 const mathOf = (o, scale = DEFAULT_COIL_WIDTH_SCALE) => panelPriceMath(panelPriceParts(o, DEFAULT_PRICE_LIST, "tier2", DEFAULT_CATALOG, scale), o);
 const ffMath = mathOf(ffDefault);
 assert.deepEqual(ffMath.map((l) => l.label), ["Coil", "Fabrication", "Total"], "default FF100: coil, fabrication, total");
-assert.equal(ffMath[0].math, '71.09 LF × $3.03/LF (up-to-21" band)', "coil line in LF and the band rate");
+assert.equal(ffMath[0].math, '71.09 LF × $3.03/LF (21" coil, 16.01"–21.00" band)', "coil line in LF, the coil and the band it falls in");
 assert.equal(ffMath[0].amount, 215.40, "71.09 × 3.03 = $215.40");
 assert.equal(ffMath[1].math, "71.09 LF × $0.65/LF", "fabrication line in LF and the rate");
 assert.equal(ffMath[1].amount, 46.21, "71.09 × 0.65 = $46.21");
 assert.equal(ffMath[2].amount, 261.61, "total $261.61 = $215.40 + $46.21");
 assert.equal(price(ffDefault, "tier2"), 261.61, "the order is priced the same $261.61");
 const smpMath = mathOf(run({ profile: FF100, width: 17, coilWidth: 21, height: 1200, paintId: "smp" }));
-assert.equal(smpMath[0].math, '100.00 LF × $2.63/LF (up-to-21" band $3.03, SMP / unpainted rate)', "SMP names the band and its rate");
+assert.equal(smpMath[0].math, '100.00 LF × $2.63/LF (21" coil, 16.01"–21.00" band $3.03, SMP / unpainted rate)', "SMP names the band and its rate");
 const cuMath = mathOf(cuFF);
 assert.equal(cuMath[0].math, '580.00 LF × $30.63/LF (21" copper)', "copper: its own per-foot rate for the coil width");
 assert.equal(cuMath[1].math, "580.00 LF × $1.30/LF (copper, twice the fabrication rate)", "copper fabrication at twice the rate");

@@ -4,7 +4,7 @@ import * as THREE from "three";
 import { storage, shopStorage } from "./lib/storage";
 import { supabase } from "./lib/supabaseClient";
 import { useAuth } from "./lib/AuthProvider";
-import { scupperSpec, scupperBack, MILEAGE_FREE, MILEAGE_RATE, mileageCharge, coilPriceForWidth, getSellRates, computePrice, panelPriceParts, panelCoilWidthIn, panelOrderProblem, panelOrderFields, panelPanForCoil, panelCoilForPan, panelRunText, orderAmountText, panelReorderNote, paintFor, panelPriceMath, sellRate, sellTierFor, DEFAULT_PRICE_LIST, DEFAULT_COIL_WIDTH_SCALE } from "../supabase/functions/_shared/pricing.mjs";
+import { scupperSpec, scupperBack, MILEAGE_FREE, MILEAGE_RATE, mileageCharge, coilPriceForWidth, getSellRates, computePrice, panelPriceParts, panelCoilWidthIn, panelOrderProblem, panelOrderFields, panelPanForCoil, panelCoilForPan, panelRunText, orderAmountText, panelReorderNote, paintFor, panelPriceMath, coilBandForWidth, coilBandRangeText, sellRate, sellTierFor, DEFAULT_PRICE_LIST, DEFAULT_COIL_WIDTH_SCALE } from "../supabase/functions/_shared/pricing.mjs";
 import { DEFAULT_CATALOG, listedProfiles, resolveCatalog, readTakeup, getColorsForBrand as catalogColorsForBrand, findColor as catalogFindColor, findGauge as catalogFindGauge, findPaint as catalogFindPaint } from "../supabase/functions/_shared/catalog.mjs";
 import { loadPlatformCatalog, loadPlatformCatalogRows, invalidatePlatformCatalog, addCatalogItem, setCatalogItemDelisted, setCatalogItemData, loadShopCatalogSelection } from "./lib/catalog";
 
@@ -7684,7 +7684,7 @@ export default function ShopOrderApp() {
                     {coilOverMax ? (
                       <div className="mono" style={{ width: "100%", padding: 8, marginTop: 4, border: `1px solid ${coilGateColor}`, borderRadius: 6, fontSize: 13, background: theme.highlight, boxSizing: "border-box", color: coilGateColor, fontWeight: 700 }}>{coilGateText}</div>
                     ) : isDemo ? signUpBox() : (
-                      <div className="mono" data-testid="panel-coil-rate" title={panelParts.coilBandIn ? `${+panelParts.coilIn.toFixed(3)}" coil: the up-to-${panelParts.coilBandIn}" band of the Coil Width Price Scale, per linear foot` : `${+panelParts.coilIn.toFixed(3)}" of coil per foot of panel, takeup included`}
+                      <div className="mono" data-testid="panel-coil-rate" title={panelParts.coilBandIn ? `${+panelParts.coilIn.toFixed(3)}" coil: the ${panelParts.coilBandRange} band of the Coil Width Price Scale, per linear foot` : `${+panelParts.coilIn.toFixed(3)}" of coil per foot of panel, takeup included`}
                         style={{ width: "100%", padding: 8, marginTop: 4, border: `1px dashed ${theme.border}`, borderRadius: 6, fontSize: 14, boxSizing: "border-box", color: theme.textSecondary }}>
                         {priceText(panelParts.coilPerFt)}
                       </div>
@@ -8865,7 +8865,10 @@ export default function ShopOrderApp() {
                   <div style={{ color: theme.textSecondary, fontSize: 12, padding: 10 }}>Loading…</div>
                 ) : (
                   [...coilWidthScale].sort((a, b) => a.width - b.width).map((c) => (
-                    <div key={c.id} style={{ background: theme.card, borderRadius: 8, padding: 10, marginBottom: 6, boxShadow: "0 1px 3px rgba(0,0,0,0.08)", display: "flex", alignItems: "flex-end", gap: 8 }}>
+                    <div key={c.id} style={{ background: theme.card, borderRadius: 8, padding: 10, marginBottom: 6, boxShadow: "0 1px 3px rgba(0,0,0,0.08)", display: "flex", alignItems: "flex-end", gap: 8, flexWrap: "wrap" }}>
+                      <div className="mono" data-testid="coil-band-range" style={{ flexBasis: "100%", fontSize: 9.5, color: theme.textSecondary }}>
+                        Coil {coilBandRangeText(coilBandForWidth(+c.width, coilWidthScale))}
+                      </div>
                       <label style={{ flex: 1, fontSize: 9.5, color: theme.textSecondary }}>
                         Width (in)
                         <input type="text" inputMode="decimal" value={draftValue(`cws-${c.id}-w`, c.width)}

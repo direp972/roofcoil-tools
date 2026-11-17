@@ -154,12 +154,21 @@ export function sellRate(item, tier) {
 export function coilPriceForWidth(widthIn, scale) {
   return coilBandForWidth(widthIn, scale)?.pricePerFt ?? null;
 }
-// The Coil Width Price Scale row a coil width falls in: { width, pricePerFt }, or null.
+// The Coil Width Price Scale row a coil width falls in: { width, pricePerFt, fromIn }, or null.
+// fromIn is the row below's width (the band starts just past it), null for the narrowest band.
 export function coilBandForWidth(widthIn, scale) {
   if (!scale || scale.length === 0 || !widthIn) return null;
   const sorted = [...scale].sort((a, b) => a.width - b.width);
-  const bracket = sorted.find((p) => widthIn <= p.width) || sorted[sorted.length - 1];
-  return { width: +bracket.width, pricePerFt: Math.max(0, +bracket.pricePerFt || 0) };
+  const found = sorted.findIndex((p) => widthIn <= p.width);
+  const at = found === -1 ? sorted.length - 1 : found; // wider than the top band: the top band
+  const bracket = sorted[at];
+  return { width: +bracket.width, pricePerFt: Math.max(0, +bracket.pricePerFt || 0), fromIn: at > 0 ? +sorted[at - 1].width : null };
+}
+// The coil widths a band covers, to the hundredth: 'up to 16.00"', '16.01"\u201321.00"'.
+export function coilBandRangeText(band) {
+  if (!band) return "";
+  const inch = (n) => `${(+n).toFixed(2)}"`;
+  return band.fromIn == null ? `up to ${inch(band.width)}` : `${inch(band.fromIn + 0.01)}\u2013${inch(band.width)}`;
 }
 
 // Copper panels pay this many times the fabrication row: copper is slower and harder to roll.
@@ -305,6 +314,7 @@ export function panelPriceParts(order, priceList, tier, catalog = DEFAULT_CATALO
     : rates.coilSqft * (coilIn / 12) * paint.mult);
   const coilBandIn = band ? band.width : null;
   const coilBandPerFt = band ? band.pricePerFt : null;
+  const coilBandRange = band ? coilBandRangeText(band) : null;
   const fabPerFt = cents(rates.fabFt || 0);                      // $ per linear foot of panel
   const coilCost = cents(coilPerFt * runFt);
   const fabCost = cents(fabPerFt * runFt);
@@ -316,7 +326,7 @@ export function panelPriceParts(order, priceList, tier, catalog = DEFAULT_CATALO
   // $2/mile one way past 40 miles from the nearest roll-forming base
   const mileage = order.runLocation === "Job Site" ? mileageCharge(order.jobSiteMiles) : 0;
   const base = Math.max(coilCost + fabCost, runMin) + mileage;
-  return { coilIn, coilBandIn, coilBandPerFt, paintMult: paint.mult, runFt, coilPerFt, fabPerFt, coilCost, fabCost, runMin, atMin, mileage, premiumMult, total: cents(base * premiumMult) };
+  return { coilIn, coilBandIn, coilBandPerFt, coilBandRange, paintMult: paint.mult, runFt, coilPerFt, fabPerFt, coilCost, fabCost, runMin, atMin, mileage, premiumMult, total: cents(base * premiumMult) };
 }
 const cents = (n) => Math.round((+n || 0) * 100) / 100;
 const dollars = (n) => "$" + (+n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -335,8 +345,8 @@ export function panelPriceMath(parts, order = {}) {
   let coilWhy;
   if (parts.coilBandIn) {
     coilWhy = parts.coilPerFt === cents(parts.coilBandPerFt)
-      ? `up-to-${parts.coilBandIn}" band`
-      : `up-to-${parts.coilBandIn}" band ${dollars(parts.coilBandPerFt)}, SMP / unpainted rate`;
+      ? `${+(+parts.coilIn).toFixed(3)}" coil, ${parts.coilBandRange} band`
+      : `${+(+parts.coilIn).toFixed(3)}" coil, ${parts.coilBandRange} band ${dollars(parts.coilBandPerFt)}, SMP / unpainted rate`;
   } else {
     coilWhy = `${+(+parts.coilIn).toFixed(3)}" ${copper ? "copper" : "coil"}`;
   }
