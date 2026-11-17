@@ -1,6 +1,7 @@
 // Pricing, shared by the app (src/App.jsx) and the submit-order Edge Function
 // (supabase/functions/submit-order), so an order is priced on the server by exactly the code
-// that priced the estimate on the screen. The catalog it prices against (gauges and their
+// that priced the estimate on the screen; order-alert reads panelRunText from it too. Both
+// functions deploy with this file and catalog.mjs beside index.ts, verify_jwt off. The catalog it prices against (gauges and their
 // fallback rates, paint multipliers, premium colors) comes from catalog.mjs next to it and
 // is passed in, defaulting to DEFAULT_CATALOG. Plain ESM whose only import is that sibling:
 // Vite bundles both into the app and Deno loads them as-is. Keep it that way — anything
@@ -179,7 +180,7 @@ export const COPPER_FAB_MULT = 2;
 export function findFabItem(priceList, profile, tier) {
   const fabItems = (priceList || []).filter((p) => p.category === "Roof Panel" && p.name.toLowerCase().includes("fabrication") && sellRate(p, tier) !== undefined);
   const code = profile ? profile.split(" ")[0].toLowerCase() : "";
-  return (code && fabItems.find((p) => p.name.toLowerCase().startsWith(code))) || fabItems.find((p) => p.name.toLowerCase().startsWith("panel")) || fabItems[0] || null;
+  return (code && fabItems.find((p) => p.name.toLowerCase().startsWith(code))) || fabItems.find((p) => p.name.toLowerCase().startsWith("panel")) || null;
 }
 
 // coilSqft is the metal's rate per sq ft: a Price List metal row (a gauge's coil row, a copper
@@ -189,11 +190,14 @@ export function findFabItem(priceList, profile, tier) {
 export function getSellRates(gaugeId, brand, priceList, profile, tier, catalog = DEFAULT_CATALOG) {
   const gauge = findGauge(catalog, gaugeId, brand);
   const fallback = { coilSqft: gauge.panelSqft, panelSqft: gauge.panelSqft, fabSqft: 0, trimFt: gauge.trimFt };
-  if (!priceList || priceList.length === 0) return fallback;
-  // Every panel is roll-formed, so every metal pays the Price List's fabrication $/LF (fabFt);
-  // copper pays COPPER_FAB_MULT times it. Only panels charge fabFt.
-  const fabRow = findFabItem(priceList, profile, tier);
+  // Every panel is roll-formed, so every metal pays the fabrication $/LF (fabFt): the Price
+  // List's row for the profile or its Panel Fabrication row, else the seed list's ($0.65), so
+  // a list saved without one still charges it. Copper pays COPPER_FAB_MULT times it. Only
+  // panels charge fabFt.
+  const listFab = findFabItem(priceList, profile, tier);
+  const fabRow = listFab || findFabItem(DEFAULT_PRICE_LIST, profile, tier);
   const fabFtFor = (mult = 1) => (fabRow ? sellRate(fabRow, tier) * mult : 0);
+  if (!priceList || priceList.length === 0) return { ...fallback, fabFt: fabFtFor(brand === "Copper" ? COPPER_FAB_MULT : 1) };
 
   if (brand === "Copper") {
     const item = priceList.find((p) => p.category === "Copper" && p.name.toLowerCase().includes(gauge.label.toLowerCase()) && sellRate(p, tier) !== undefined);
@@ -211,15 +215,15 @@ export function getSellRates(gaugeId, brand, priceList, profile, tier, catalog =
   // raw coil/flat metal orders should only ever be charged the coil rate, never
   // fabrication, since nothing's being formed.
   const coilItem = priceList.find((p) => p.category === "Roof Panel" && p.name.startsWith(gaugeLabel) && sellRate(p, tier) !== undefined);
-  const fabItem = fabRow;
+  const fabItem = listFab; // fabSqft below is the list's own row, as before
   const trimItem = priceList.find((p) => p.category === "Trim / Flashing" && p.name.startsWith(gaugeLabel) && sellRate(p, tier) !== undefined);
 
   const coilWidthIn = coilItem?.coverageWidth || 12;
   const coilSqft = coilItem ? sellRate(coilItem, tier) / (coilWidthIn / 12) : fallback.coilSqft;
   // fabFt is the row as listed, $ per linear foot of panel — what panels are charged.
   // fabSqft (the same rate spread over the coil row's width) is kept for older callers.
-  const fabFt = fabItem ? sellRate(fabItem, tier) : 0;
-  const fabSqft = fabFt / (coilWidthIn / 12);
+  const fabFt = fabFtFor();
+  const fabSqft = (fabItem ? sellRate(fabItem, tier) : 0) / (coilWidthIn / 12);
   const panelSqft = coilSqft + fabSqft;
   const trimFt = trimItem ? sellRate(trimItem, tier) : fallback.trimFt;
   return { coilSqft, panelSqft, fabSqft, fabFt, trimFt };
@@ -324,11 +328,14 @@ export function panelPriceParts(order, priceList, tier, catalog = DEFAULT_CATALO
   const runMin = order.runLocation === "Job Site" ? 600 : 200;
   const atMin = coilCost + fabCost < runMin;
   // $2/mile one way past 40 miles from the nearest roll-forming base
-  const mileage = order.runLocation === "Job Site" ? mileageCharge(order.jobSiteMiles) : 0;
+  const milesPast = order.runLocation === "Job Site" ? cents(Math.max(0, (+order.jobSiteMiles || 0) - MILEAGE_FREE)) : 0;
+  const mileage = cents(milesPast * MILEAGE_RATE);
   const base = Math.max(coilCost + fabCost, runMin) + mileage;
-  return { coilIn, coilBandIn, coilBandPerFt, coilBandRange, paintMult: paint.mult, runFt, coilPerFt, fabPerFt, coilCost, fabCost, runMin, atMin, mileage, premiumMult, total: cents(base * premiumMult) };
+  return { coilIn, coilBandIn, coilBandPerFt, coilBandRange, milesPast, paintMult: paint.mult, runFt, coilPerFt, fabPerFt, coilCost, fabCost, runMin, atMin, mileage, premiumMult, total: cents(base * premiumMult) };
 }
-const cents = (n) => Math.round((+n || 0) * 100) / 100;
+// To the cent, half up. toPrecision(12) first strips binary float noise, so a product that is
+// exactly half a cent (62.30 x 0.65 = 40.495) rounds up as written, not down from 40.49499...
+const cents = (n) => Math.round(+((+n || 0) * 100).toPrecision(12)) / 100;
 const dollars = (n) => "$" + (+n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const linearFeet = (n) => (+n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " LF";
 
@@ -336,9 +343,10 @@ const linearFeet = (n) => (+n).toLocaleString("en-US", { minimumFractionDigits: 
 // { label, math, amount }, and the amounts are the ones the price is added up from.
 //   Coil           71.09 LF x $3.03/LF (up-to-21" band)        $215.40
 //   Fabrication    71.09 LF x $0.65/LF                         $46.21
-//   Run minimum    coil + fabrication ... under the $200 shop minimum   $200.00   (when it applies)
+//   Run minimum    $200.00 shop minimum - coil + fabrication $73.60   $126.40   (when it applies)
 //   Mileage        35 mi past 40 x $2.00/mi                    $70.00    (job site past 40 mi)
-//   Premium color  $261.61 x 1.12                              $31.39    (premium colors)
+//   Premium color  $261.61 x 12%                               $31.39    (premium colors)
+// Every amount above Total adds up to the Total, to the cent.
 //   Total                                                      $261.61
 export function panelPriceMath(parts, order = {}) {
   const copper = order.brand === "Copper";
@@ -355,15 +363,17 @@ export function panelPriceMath(parts, order = {}) {
     { label: "Fabrication", math: `${linearFeet(parts.runFt)} \u00d7 ${dollars(parts.fabPerFt)}/LF${copper ? " (copper, twice the fabrication rate)" : ""}`, amount: parts.fabCost },
   ];
   if (parts.atMin) {
+    // the top-up that brings coil + fabrication to the minimum, so every amount adds to the total
     const where = order.runLocation === "Job Site" ? "job-site" : "shop";
-    lines.push({ label: "Run minimum", math: `coil + fabrication ${dollars(cents(parts.coilCost + parts.fabCost))} is under the ${dollars(parts.runMin)} ${where} minimum`, amount: parts.runMin });
+    const run = cents(parts.coilCost + parts.fabCost);
+    lines.push({ label: "Run minimum", math: `${dollars(parts.runMin)} ${where} minimum \u2212 coil + fabrication ${dollars(run)}`, amount: cents(parts.runMin - run) });
   }
   if (parts.mileage > 0) {
-    lines.push({ label: "Mileage", math: `${+(parts.mileage / MILEAGE_RATE).toFixed(1)} mi past ${MILEAGE_FREE} \u00d7 ${dollars(MILEAGE_RATE)}/mi`, amount: parts.mileage });
+    lines.push({ label: "Mileage", math: `${parts.milesPast} mi past ${MILEAGE_FREE} \u00d7 ${dollars(MILEAGE_RATE)}/mi`, amount: parts.mileage });
   }
   if (parts.premiumMult !== 1) {
     const before = cents(Math.max(parts.coilCost + parts.fabCost, parts.runMin) + parts.mileage);
-    lines.push({ label: "Premium color", math: `${dollars(before)} \u00d7 ${parts.premiumMult}`, amount: cents(parts.total - before) });
+    lines.push({ label: "Premium color", math: `${dollars(before)} \u00d7 ${Math.round((parts.premiumMult - 1) * 100)}%`, amount: cents(parts.total - before) });
   }
   lines.push({ label: "Total", math: "", amount: parts.total });
   return lines;

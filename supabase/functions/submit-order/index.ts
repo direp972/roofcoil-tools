@@ -59,7 +59,8 @@ const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE
 async function shopList(shopId: string, key: string, fallback: any[]): Promise<any[]> {
   const { data, error } = await admin.from("shop_settings").select("value").eq("shop_id", shopId).eq("key", key).maybeSingle();
   if (error) throw new Error(`shop_settings ${key}: ${error.message}`);
-  return Array.isArray(data?.value) ? data.value : fallback;
+  // a list saved empty counts as unsaved, as customer_price_list (null for []) and the app read it
+  return Array.isArray(data?.value) && data.value.length ? data.value : fallback;
 }
 
 // A shop's catalog selection (shop_settings key 'catalog'), or null when it has none.

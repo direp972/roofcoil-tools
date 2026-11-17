@@ -237,8 +237,14 @@ near(cuNoRow.coilCost, 25.38 * 580, "copper without a Price List row: the catalo
 // Price List or one missing a coil row prices the coil the same; only fabrication needs a row.
 const ffEmpty = panelPriceParts(ffDefault, [], "tier2");
 near(ffEmpty.coilCost, 3.03 * 71.09, "an empty Price List: the coil is still the 21\" band");
-near(ffEmpty.fabPerFt, 0, "but there is no fabrication row");
-near(ffEmpty.total, Math.max(3.03 * 71.09, 200), "so the run is the coil, or the minimum");
+near(ffEmpty.fabPerFt, FAB, "and fabrication is the seed $0.65 a foot, though the list has no row");
+near(ffEmpty.total, (3.03 + FAB) * 71.09, "so the run is priced as with the seed list");
+// No generic fabrication row: the seed $0.65, never another profile's row (FWQ100's $2.00).
+const noGenericFab = DEFAULT_PRICE_LIST.filter((p) => p.name !== "Panel Fabrication (per linear ft)");
+near(panelPriceParts(ffDefault, noGenericFab, "tier2").fabPerFt, FAB, "no Panel Fabrication row: $0.65, not FWQ100's row");
+near(panelPriceParts(run({ profile: FWQ100, width: 17, coilWidth: 21, height: 853.08 }), noGenericFab, "tier2").fabPerFt, 2.00, "FWQ100 keeps its own row");
+const blankGreenleaf = DEFAULT_PRICE_LIST.map((p) => (p.name === "Panel Fabrication (per linear ft)" ? { ...p, greenleaf: undefined } : p));
+near(panelPriceParts(ffDefault, blankGreenleaf, "greenleaf").fabPerFt, FAB, "a tier left blank on the row: the seed $0.65");
 const noCoilRow = DEFAULT_PRICE_LIST.filter((p) => p.name !== "24 Gauge Coil (per linear ft)");
 const ffNoCoil = panelPriceParts(ffDefault, noCoilRow, "tier2");
 near(ffNoCoil.total, price(ffDefault, "tier2"), "no 24 ga coil row: the same price, from the band");
@@ -323,14 +329,27 @@ assert.equal(cuMath[0].math, '580.00 LF × $30.63/LF (21" copper)', "copper: its
 assert.equal(cuMath[1].math, "580.00 LF × $1.30/LF (copper, twice the fabrication rate)", "copper fabrication at twice the rate");
 const minMath = mathOf(run({ profile: FF100, width: 17, coilWidth: 21, height: 240 }));
 assert.deepEqual(minMath.map((l) => l.label), ["Coil", "Fabrication", "Run minimum", "Total"], "a short run shows the minimum");
-assert.equal(minMath[2].math, "coil + fabrication $73.60 is under the $200.00 shop minimum", "and why");
-assert.equal(minMath[3].amount, 200, "total $200");
+assert.equal(minMath[2].math, "$200.00 shop minimum − coil + fabrication $73.60", "the minimum less the run");
+assert.equal(minMath[2].amount, 126.40, "the top-up: $126.40");
+assert.equal(minMath[3].amount, 200, "total $200 = $60.60 + $13.00 + $126.40");
 const siteMath = mathOf(run({ profile: FF100, width: 17, coilWidth: 21, height: 2400, runLocation: "Job Site", jobSiteMiles: 75 }));
 assert.deepEqual(siteMath.map((l) => l.label), ["Coil", "Fabrication", "Mileage", "Total"], "a job site past 40 miles shows the mileage");
 assert.equal(siteMath[2].math, "35 mi past 40 × $2.00/mi", "mileage line");
+const typedMiles = mathOf(run({ profile: FF100, width: 17, coilWidth: 21, height: 2400, runLocation: "Job Site", jobSiteMiles: 75.25 }));
+assert.equal(typedMiles[2].math, "35.25 mi past 40 × $2.00/mi", "typed miles show to the hundredth");
+assert.equal(typedMiles[2].amount, 70.50, "35.25 × $2 = $70.50");
+const siteMin = mathOf(run({ profile: FF100, width: 17, coilWidth: 21, height: 1200, runLocation: "Job Site", jobSiteMiles: 25 }));
+assert.deepEqual(siteMin.map((l) => [l.label, l.amount]), [["Coil", 303], ["Fabrication", 65], ["Run minimum", 232], ["Total", 600]], "job site at the minimum: $303 + $65 + $232 = $600");
 assert.equal(siteMath[3].amount, 606 + 130 + 70, "200 LF: $606 coil + $130 fabrication + $70 mileage");
 const premMath = mathOf(run({ profile: FF100, width: 17, coilWidth: 21, height: 853.08, colorName: "Burnished Slate" }));
 assert.equal(premMath[2].label, "Premium color", "a premium color shows its factor");
+assert.equal(premMath[2].math, "$261.61 × 12%", "as the 12% it adds");
+assert.equal(premMath[2].amount, 31.39, "$261.61 × 12% = $31.39");
+assert.equal(premMath[3].amount, 293.00, "total $293.00");
+// Half a cent rounds up, as written: 62.30 LF × $0.65 = $40.495 is $40.50.
+const half = mathOf(run({ profile: FF100, width: 17, coilWidth: 21, height: 62.3 * 12 }));
+assert.equal(half[1].amount, 40.50, "62.30 LF × $0.65 = $40.50");
+assert.equal(half[2].amount, 229.27, "62.30 LF: $188.77 + $40.50 = $229.27");
 // Over every listed profile, coil width, length, metal, paint and run location: each line is
 // its LF x rate to the cent, and the lines add up to the price to the cent.
 const c2 = (n) => Math.round(n * 100) / 100;
@@ -347,7 +366,7 @@ for (const name of listedProfiles(DEFAULT_CATALOG)) {
         assert.equal(total, computePrice(o, DEFAULT_PRICE_LIST, DEFAULT_COIL_WIDTH_SCALE, "tier2"), `${name} ${coil}": the math's total is the price`);
         assert.equal(c2(parts.runFt * parts.coilPerFt), parts.coilCost, "coil line: LF x rate");
         assert.equal(c2(parts.runFt * parts.fabPerFt), parts.fabCost, "fabrication line: LF x rate");
-        const body = lines.slice(0, -1).filter((l) => !(parts.atMin && (l.label === "Coil" || l.label === "Fabrication")));
+        const body = lines.slice(0, -1);
         assert.equal(c2(body.reduce((sum, l) => sum + l.amount, 0)), total, `${name} ${coil}" ${inches}": the lines add up to the total`);
         mathCases++;
       }

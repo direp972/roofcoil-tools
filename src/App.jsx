@@ -4986,7 +4986,8 @@ export default function ShopOrderApp() {
           if (error) throw error;
           parsed = Array.isArray(data) ? data : null;
         }
-        if (!stale) setPriceList(parsed ? parsed.map((p) => ({ cost: 0, ...p })) : DEFAULT_PRICE_LIST);
+        // a list saved empty counts as unsaved, as customer_price_list and submit-order read it
+        if (!stale) setPriceList(Array.isArray(parsed) && parsed.length ? parsed.map((p) => ({ cost: 0, ...p })) : DEFAULT_PRICE_LIST);
       } catch (e) { if (!stale) setPriceList(DEFAULT_PRICE_LIST); }
       if (!stale) setPriceListLoaded(true);
     })();
