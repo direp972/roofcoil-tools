@@ -4916,6 +4916,9 @@ export default function ShopOrderApp() {
   // the shop the active catalog was resolved for (null signed out): until it is the shop picked,
   // the pickers still show the last shop's catalog, so nothing is sent or saved
   const [catalogFor, setCatalogFor] = useState(undefined);
+  // the profile the person picked or loaded (vault, past order): if a shop's catalog swaps it,
+  // say so; a default the page set is swapped quietly
+  const chosenProfile = useRef(null);
   const catalogReady = catalogFor === (user && shopId ? shopId : null);
   useEffect(() => {
     let stale = false;
@@ -4956,8 +4959,15 @@ export default function ShopOrderApp() {
     const listed = listedProfiles(c);
     if (listed.length && !listed.includes(profile)) {
       setProfile(listed[0]);
-      // a panel picked at another shop: say it changed, rather than send one the person never chose
-      if (catalogTick > 1 && profile) flash(`${selectedShop ? selectedShop.name : "This shop"} doesn't roll ${profile.split(" ")[0]} — switched to ${listed[0].split(" ")[0]}. Pick another panel if you need to.`, 6000);
+      // a panel the person picked or loaded: say it changed, rather than send one they never chose
+      if (profile && chosenProfile.current === profile) flash(`${selectedShop ? selectedShop.name : "This shop"} doesn't roll ${profile.split(" ")[0]} — switched to ${listed[0].split(" ")[0]}. Pick another panel if you need to.`, 6000);
+      chosenProfile.current = null;
+    }
+    // clips for a profile this shop doesn't roll come off the order, and the person is told
+    const offClips = accessories.filter((a) => a.type === "Clips" && a.profile && !listed.includes(a.profile));
+    if (listed.length && offClips.length) {
+      setAccessories((a) => a.filter((x) => !offClips.some((o) => o.id === x.id)));
+      flash(`${selectedShop ? selectedShop.name : "This shop"} doesn't roll ${[...new Set(offClips.map((o) => o.profile.split(" ")[0]))].join(", ")} — its clips came off the order.`, 6000);
     }
     if (listed.length && !listed.includes(accProfile)) setAccProfile(listed[0]);
     if (!c.brands.includes(brand) && !c.unpainted.includes(brand)) {
@@ -5898,7 +5908,7 @@ export default function ShopOrderApp() {
       const cs = clipSpecForProfile(accProfile);
       label = cs ? `Clips ${cs.code} — ${accProfile} (${cs.perBox}/box, ${(qty * cs.perBox).toLocaleString()} clips total)` : `Clips — ${accProfile}`;
     }
-    setAccessories((a) => [...a, { id: uid(), type: accType, label, qty }]);
+    setAccessories((a) => [...a, { id: uid(), type: accType, label, qty, ...(accType === "Clips" ? { profile: accProfile } : {}) }]);
     setAccQty(1);
   };
   const removeAccessory = (id) => setAccessories((a) => a.filter((x) => x.id !== id));
@@ -6256,7 +6266,7 @@ export default function ShopOrderApp() {
       if (p.sheetWidth != null) setSheetWidth(p.sheetWidth);
       setViewResetKey((k) => k + 1);
     } else if (kind === "panel") {
-      if (p.profile) setProfile(p.profile);
+      if (p.profile) { setProfile(p.profile); chosenProfile.current = p.profile; }
       // width re-derives from coilWidth + profile; orders sent before panel orders stored
       // their coil width carry only the pan width, so their coil is rebuilt from it — on the
       // sixteenth when that makes the same pan (16.88" of SS450 reloads on a 21" coil)
@@ -6272,6 +6282,7 @@ export default function ShopOrderApp() {
       // its shop: the one it was saved or sent to (older items name the fabricator only)
       const at = p.shopId && shops.some((s) => s.id === p.shopId) ? p.shopId : shops.find((s) => s.name === p.fabricator)?.id;
       if (at && at !== shopId) pickShop(at); // the new shop's catalog then swaps a profile it doesn't roll, and says so
+      else if (!catalogReady) { /* the shop's catalog, when it lands, keeps it or swaps it and says so */ }
       else if (p.profile && !listedProfiles(activeCatalog).includes(p.profile) && listedProfiles(activeCatalog).length) {
         const first = listedProfiles(activeCatalog)[0];
         setProfile(first);
@@ -7570,7 +7581,7 @@ export default function ShopOrderApp() {
                                 const pCode = dash > 0 ? p.slice(0, dash).trim() : p;
                                 const pSpec = dash > 0 ? p.slice(dash + 1).trim() : (activeCatalog.profiles[p]?.desc || "");
                                 return (
-                                  <button key={p} onClick={() => { setProfile(p); setShowPanelCatalog(false); }} className="tap-bounce"
+                                  <button key={p} onClick={() => { setProfile(p); chosenProfile.current = p; setShowPanelCatalog(false); }} className="tap-bounce"
                                     style={{
                                       padding: 0, borderRadius: 10, overflow: "hidden", cursor: "pointer", textAlign: "center",
                                       border: active ? `2px solid ${SAFETY}` : `1px solid ${theme.border}`, background: theme.card,

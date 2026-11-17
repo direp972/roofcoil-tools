@@ -473,8 +473,13 @@ assert.ok(!listedProfiles(cfrTries).some((p) => p.startsWith("US-")) && !isOffer
 assert.ok(!listedProfiles(resolveCatalog(livePlatform, adaxSel, null)).some((p) => p.startsWith("US-")), "nor can a resolution with no shop");
 // the built-in fallback (the live table unreadable) marks them a shop's own with no id: off for everyone
 assert.ok(!listedProfiles(resolveCatalog(DEFAULT_CATALOG, adaxSel, ADAX_ID)).some((p) => p.startsWith("US-")), "the built-in fallback shows them to no shop");
-// a platform-delisted profile with no shop of its own (BB750) is any shop's to switch on, as before
-assert.ok(listedProfiles(resolveCatalog(livePlatform, { profiles: { "BB750 – Board and Batten": true } }, CFR_ID)).includes("BB750 – Board and Batten"), "an unowned delisted profile any shop can switch on");
+// only a profile marked as the shop's own can be switched on: one the platform delisted for
+// everyone (BB750) stays off, whoever asks
+assert.ok(!listedProfiles(resolveCatalog(livePlatform, { profiles: { "BB750 – Board and Batten": true } }, CFR_ID)).includes("BB750 – Board and Batten"), "an unowned delisted profile stays off");
+// an Adax row relisted on the platform by mistake is still Adax's alone
+const relisted = catalogFromRows(adaxRows.map((r) => (r.kind === "profile" && r.key === 'US-150 – 1.5" Mechanical Seam' ? { ...r, delisted: false } : r)));
+assert.ok(!listedProfiles(resolveCatalog(relisted, null, CFR_ID)).includes('US-150 – 1.5" Mechanical Seam') && !listedProfiles(resolveCatalog(relisted, null, null)).includes('US-150 – 1.5" Mechanical Seam'), "a relisted Adax row stays off at other shops and in the main tool");
+assert.ok(listedProfiles(resolveCatalog(relisted, null, ADAX_ID)).includes('US-150 – 1.5" Mechanical Seam'), "and on at Adax");
 assert.ok(!listedProfiles(resolveCatalog(livePlatform, { profiles: { 'SS450 – 1.5" Snap-Lock': true } }, CFR_ID)).includes('US-150 – 1.5" Mechanical Seam'), "true on a listed profile changes nothing else");
 assert.ok(!listedProfiles(resolveCatalog(livePlatform, { profiles: { "Nope – 9\" Seam": true } }, ADAX_ID)).includes("Nope – 9\" Seam"), "true on an unknown name adds nothing");
 const shop = resolveCatalog(DEFAULT_CATALOG, selection);

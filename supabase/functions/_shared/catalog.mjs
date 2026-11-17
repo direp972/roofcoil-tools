@@ -428,7 +428,12 @@ export function isUsableCatalog(c) {
 // colors and listedProfiles, which carry the offer only.
 export function resolveCatalog(platform, selection, shopId = null) {
   const base = platform || DEFAULT_CATALOG;
-  if (!selection || typeof selection !== "object" || Array.isArray(selection)) return base;
+  if (!selection || typeof selection !== "object" || Array.isArray(selection)) {
+    // no switches: the platform's catalog as it is, unless it lists a profile marked as another
+    // shop's own, which is resolved off below like any shop's
+    if (!Object.values(base.profiles).some((q) => q.shop && !q.delisted && q.shop !== shopId)) return base;
+    selection = {};
+  }
   const off = (map, key) => !!map && map[key] === false;
   const brandsOff = selection.brands || {}, colorsOff = selection.colors || {}, materialsOff = selection.materials || {}, profilesOff = selection.profiles || {};
   const custom = selection.custom || {}, retired = selection.retired || {};
@@ -466,15 +471,16 @@ export function resolveCatalog(platform, selection, shopId = null) {
   const gauges = { ...base.gauges };
   for (const b of [...customBrands, ...retiredBrands]) if (b.base === "copper") gauges[b.name] = base.gauges.Copper;
 
-  // A shop's profile switches: false takes a listed platform profile out of its offer; true
-  // puts in one the platform keeps off for everyone else, for the shop that rolls it. A
-  // profile the platform marks with its shop (data.shop, a shop id: Adax Metals' Ultra Seam
-  // US- profiles) is switched on by that shop alone; any other shop's true is ignored.
-  const mayRoll = (q) => !q.shop || (!!shopId && q.shop === shopId);
+  // A shop's profile switches. false takes a listed platform profile out of its offer. true
+  // puts in a profile the platform marks as this shop's own (data.shop, a shop id: Adax
+  // Metals' Ultra Seam US- profiles): no other shop can switch one on, and a profile marked
+  // with another shop is off here even if it were relisted on the platform.
+  const own = (q) => !!shopId && q.shop === shopId;
   const profiles = {};
   for (const [name, q] of Object.entries(base.profiles)) {
-    if (!q.delisted && off(profilesOff, name)) profiles[name] = { ...q, delisted: true, switchedOff: true };
-    else if (q.delisted && profilesOff[name] === true && mayRoll(q)) profiles[name] = { ...q, delisted: false, switchedOn: true };
+    if (q.shop && !own(q)) profiles[name] = q.delisted ? q : { ...q, delisted: true, otherShop: true };
+    else if (!q.delisted && off(profilesOff, name)) profiles[name] = { ...q, delisted: true, switchedOff: true };
+    else if (q.delisted && profilesOff[name] === true && own(q)) profiles[name] = { ...q, delisted: false, switchedOn: true };
     else profiles[name] = q;
   }
   const profileFields = (q) => ({ code: String(q.code || "").trim(), family: q.family || "mech", takeup: Number(q.takeup) || 0, vendor: "shop", desc: q.desc || "" });
