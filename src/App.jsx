@@ -4281,7 +4281,8 @@ export default function ShopOrderApp() {
   const [materialCostsLoaded, setMaterialCostsLoaded] = useState(false);
   const [productionCosts, setProductionCosts] = useState([]);
   const [productionCostsLoaded, setProductionCostsLoaded] = useState(false);
-  const [coilWidthScale, setCoilWidthScale] = useState([]);
+  // the seed scale until the shop's own loads, so a panel or coil estimate never prices without one
+  const [coilWidthScale, setCoilWidthScale] = useState(DEFAULT_COIL_WIDTH_SCALE);
   const [customPresets, setCustomPresets] = useState([]);
   const [trimBoxOpen, setTrimBoxOpen] = useState(false); // the Trim Box on the drawing tool — every stock profile in one list
   const [trimBoxQuery, setTrimBoxQuery] = useState("");
@@ -5574,7 +5575,7 @@ export default function ShopOrderApp() {
     : { type: "trim", points, quantity, lengthPerPiece, gaugeId, paintId, brand, colorName };
   const estimate = computePrice(draft, priceList, coilWidthScale, sellTier, activeCatalog);
   // the coil and fabrication rates that estimate is built from, for the panel form to show
-  const panelParts = shapeType === "panel" ? panelPriceParts(draft, priceList, sellTier, activeCatalog) : null;
+  const panelParts = shapeType === "panel" ? panelPriceParts(draft, priceList, sellTier, activeCatalog, coilWidthScale) : null;
   const girth = profileGirth(points, hemStart, hemEnd); // legs plus the end folds — the width the shear cuts
   // Qty / sheet width are "" while a field is cleared for retyping — treat that as 0 so
   // this stays numeric (dropWidth.toFixed on "" used to white-screen the whole app).
@@ -7683,7 +7684,7 @@ export default function ShopOrderApp() {
                     {coilOverMax ? (
                       <div className="mono" style={{ width: "100%", padding: 8, marginTop: 4, border: `1px solid ${coilGateColor}`, borderRadius: 6, fontSize: 13, background: theme.highlight, boxSizing: "border-box", color: coilGateColor, fontWeight: 700 }}>{coilGateText}</div>
                     ) : isDemo ? signUpBox() : (
-                      <div className="mono" data-testid="panel-coil-rate" title={`${+panelParts.coilIn.toFixed(3)}" of coil per foot of panel, takeup included`}
+                      <div className="mono" data-testid="panel-coil-rate" title={panelParts.coilBandIn ? `${+panelParts.coilIn.toFixed(3)}" coil: the up-to-${panelParts.coilBandIn}" band of the Coil Width Price Scale, per linear foot` : `${+panelParts.coilIn.toFixed(3)}" of coil per foot of panel, takeup included`}
                         style={{ width: "100%", padding: 8, marginTop: 4, border: `1px dashed ${theme.border}`, borderRadius: 6, fontSize: 14, boxSizing: "border-box", color: theme.textSecondary }}>
                         {priceText(panelParts.coilPerFt)}
                       </div>
@@ -7714,7 +7715,7 @@ export default function ShopOrderApp() {
                 )}
                 {!isDemo && !coilOverMax && (
                   <div data-testid="panel-rate-note" style={{ fontSize: 10, color: theme.textSecondary, marginTop: 4 }}>
-                    Coil and fabrication are per foot of panel, for reference — coil is the full {+panelParts.coilIn.toFixed(3)}" coil, takeup included.
+                    Coil and fabrication are per linear foot, for reference — {panelParts.coilBandIn ? <>coil is the {+panelParts.coilIn.toFixed(3)}" coil at the up-to-{panelParts.coilBandIn}" band of the Coil Width Price Scale.</> : <>coil is the full {+panelParts.coilIn.toFixed(3)}" coil, takeup included.</>}
                     {" "}Total Price is what the order costs: those rates × the length — or the run minimum ($200 shop-rolled · $600 on site) when they come to less{panelParts.atMin ? ", as this run does" : ""} — plus any premium-color or mileage charge.{brand === "Copper" ? " Copper is fabricated at twice the fabrication rate." : ""}
                   </div>
                 )}

@@ -152,10 +152,14 @@ export function sellRate(item, tier) {
 // the 24" rate. Wider than the top bracket uses the top bracket's price.
 // Returns null when the scale is empty so callers can fall back to flat-rate.
 export function coilPriceForWidth(widthIn, scale) {
+  return coilBandForWidth(widthIn, scale)?.pricePerFt ?? null;
+}
+// The Coil Width Price Scale row a coil width falls in: { width, pricePerFt }, or null.
+export function coilBandForWidth(widthIn, scale) {
   if (!scale || scale.length === 0 || !widthIn) return null;
   const sorted = [...scale].sort((a, b) => a.width - b.width);
   const bracket = sorted.find((p) => widthIn <= p.width) || sorted[sorted.length - 1];
-  return Math.max(0, bracket.pricePerFt);
+  return { width: +bracket.width, pricePerFt: Math.max(0, +bracket.pricePerFt || 0) };
 }
 
 // Copper panels pay this many times the fabrication row: copper is slower and harder to roll.
@@ -271,25 +275,33 @@ export function panelOrderFields(f) {
 
 // The pieces of a panel price, so the panel calculator shows the rates the total is built
 // from and computePrice adds up exactly the same numbers.
-//   Coil: the metal fed through the roll former — coil width × length, takeup included —
-//   at the metal's rate (getSellRates' coilSqft), times the paint multiplier. Every metal is
-//   billed this way: painted steel, Galvalume, Bonderized, G90 and copper, from a Price List
-//   row or the catalog's own rate. (It used to be the pan's coverage × length, so the
-//   takeup's metal was never charged: a 21" coil formed to a 17" FF100 pan billed 17".)
+//   Coil: priced per linear foot of the coil fed, takeup included, from the shop's Coil
+//   Width Price Scale — the band the coil width falls in ("up to 16" $2.56/LF, up to 21"
+//   $3.03/LF, up to 24" $3.31/LF" in the seed scale), the same price a coil order of that
+//   width pays. The bands are PVDF prices: SMP and unpainted steel (Galvalume, Bonderized,
+//   G90) get the SMP/PVDF ratio, as coil orders do. Copper is not on the steel bands: it is
+//   its Price List copper row (or the catalog's copper rate) across the coil width. With no
+//   scale at all, the coil falls back to the metal's rate across the coil width. (A panel
+//   used to bill the pan's coverage in square feet, so the takeup's metal was never charged.)
 //   Fabrication: the Price List's fabrication row is dollars per linear foot of panel, and
 //   that is what is charged, on every metal (copper at twice the row) — not spread over the
 //   coil row's width and not marked up for paint, which is metal, not roll-forming.
 //   Run minimum: the run is charged the coil and fabrication together, or the minimum
 //   ($200 shop-rolled, $600 on a job site) when they come to less — never both. A panel run
 //   carries no order charge on top.
-export function panelPriceParts(order, priceList, tier, catalog = DEFAULT_CATALOG) {
+export function panelPriceParts(order, priceList, tier, catalog = DEFAULT_CATALOG, coilWidthScale = DEFAULT_COIL_WIDTH_SCALE) {
   const rates = getSellRates(order.gaugeId, order.brand, priceList, order.profile, tier, catalog);
   const paint = paintFor(order.brand, order.paintId, catalog);
   const colorObj = findColor(catalog, order.colorName, order.brand, order.paintId);
   const premiumMult = colorObj?.premium ? 1.12 : 1;
   const coilIn = panelCoilWidthIn(order, catalog);
   const runFt = (order.height / 12) * order.quantity;           // feet of panel, and of coil
-  const coilPerFt = rates.coilSqft * (coilIn / 12) * paint.mult; // $ per foot of panel for the coil
+  const band = order.brand === "Copper" ? null : coilBandForWidth(coilIn, coilWidthScale);
+  const pvdfMult = findPaint(catalog, "pvdf")?.mult || 1;
+  const coilPerFt = band                                         // $ per foot of panel for the coil
+    ? band.pricePerFt * (paint.mult / pvdfMult)
+    : rates.coilSqft * (coilIn / 12) * paint.mult;
+  const coilBandIn = band ? band.width : null;
   const fabPerFt = rates.fabFt || 0;                             // $ per foot of panel
   const coilCost = coilPerFt * runFt;
   const fabCost = fabPerFt * runFt;
@@ -301,7 +313,7 @@ export function panelPriceParts(order, priceList, tier, catalog = DEFAULT_CATALO
   // $2/mile one way past 40 miles from the nearest roll-forming base
   const mileage = order.runLocation === "Job Site" ? mileageCharge(order.jobSiteMiles) : 0;
   const base = Math.max(coilCost + fabCost, runMin) + mileage;
-  return { coilIn, runFt, coilPerFt, fabPerFt, coilCost, fabCost, runMin, atMin, mileage, premiumMult, total: base * premiumMult };
+  return { coilIn, coilBandIn, runFt, coilPerFt, fabPerFt, coilCost, fabCost, runMin, atMin, mileage, premiumMult, total: base * premiumMult };
 }
 
 // Feet and inches from inches, as the shop reads a length: 853.08 -> 71' 1", 240 -> 20'.
@@ -442,7 +454,7 @@ export function computePrice(order, priceList, coilWidthScale, tier, catalog = D
     const base = sqft * rates.coilSqft * paint.mult * order.quantity + formingFee * order.quantity;
     return Math.max(20, base * premiumMult + 20);
   } else if (order.type === "panel") {
-    return panelPriceParts(order, priceList, tier, catalog).total;
+    return panelPriceParts(order, priceList, tier, catalog, coilWidthScale).total;
   } else {
     const points = order.points || [];
     const bends = Math.max(0, points.length - 2);
