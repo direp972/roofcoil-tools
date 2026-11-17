@@ -56,6 +56,9 @@ const getColorsForBrand = (brand, paintId) => catalogColorsForBrand(activeCatalo
 const findColor = (name, brand, paintId) => catalogFindColor(activeCatalog, name, brand, paintId);
 const findGauge = (gaugeId, brand) => catalogFindGauge(activeCatalog, gaugeId, brand);
 const PROFILES = () => listedProfiles(activeCatalog);
+// a Clips line's profile: the one it carries, or (lines saved before they carried one) the
+// catalog profile its label names
+const clipProfileOf = (a) => a.profile || Object.keys(activeCatalog.profiles).filter((p) => String(a.label || "").includes(p)).sort((x, y) => y.length - x.length)[0] || null;
 
 const clipSpecForProfile = (profile) => activeCatalog.clips[activeCatalog.profiles[profile]?.code] || null;
 
@@ -3447,7 +3450,8 @@ function CatalogSection({ platform, selection, onChange, theme, shopId, shopName
   const small = { fontSize: 10.5, color: theme.textSecondary };
   const input = { width: "100%", padding: 8, border: `1px solid ${theme.border}`, borderRadius: 6, fontSize: 12, background: theme.inputBg, color: theme.text, boxSizing: "border-box", marginTop: 4 };
   const btn = (primary) => ({ padding: "7px 12px", borderRadius: 6, border: primary ? "none" : `1px solid ${theme.border}`, background: primary ? INK : "transparent", color: primary ? "#fff" : theme.text, fontSize: 11.5, fontWeight: 700, cursor: "pointer" });
-  const platformListed = Object.keys(platform.profiles).filter((k) => !platform.profiles[k].delisted);
+  // listed platform profiles, less one marked as another shop's own (off here even if relisted)
+  const platformListed = Object.keys(platform.profiles).filter((k) => !platform.profiles[k].delisted && (!platform.profiles[k].shop || platform.profiles[k].shop === shopId));
   // profiles the platform keeps off for everyone else and marks as this shop's own (data.shop):
   // listed on or off, so one switched off can be switched on again
   const ownProfiles = Object.keys(platform.profiles).filter((k) => platform.profiles[k].delisted && platform.profiles[k].shop && platform.profiles[k].shop === shopId);
@@ -3629,7 +3633,7 @@ function PlatformCatalogSection({ theme, userId, onChanged }) {
         : r.kind === "gauge" && r.parent_key === "painted" && listedCount("gauge", "painted") <= 1 ? "painted gauge" : r.kind === "profile" && listedCount("profile", "") <= 1 ? "profile" : null;
       if (last) { say(`Keep at least one ${last} listed — the tools can't run without one.`); return; }
     }
-    write(() => setCatalogItemDelisted(r, !r.delisted, userId), r.delisted ? `${r.key} is back in every shop's pickers.` : `${r.key} is delisted: out of every shop's pickers and the public pages; past orders still read right.`);
+    write(() => setCatalogItemDelisted(r, !r.delisted, userId), r.delisted ? (r.kind === "profile" && r.data?.shop ? `${r.key} is relisted — it is marked as one shop's own, so only that shop's pickers show it.` : `${r.key} is back in every shop's pickers.`) : `${r.key} is delisted: out of every shop's pickers and the public pages; past orders still read right.`);
   };
   const clearDraft = (r) => setHexDraft((d) => { const n = { ...d }; delete n[rid(r)]; return n; });
   const saveHex = (r) => {
@@ -4957,18 +4961,21 @@ export default function ShopOrderApp() {
     if (catalogTick === 0) return;
     const c = activeCatalog;
     const listed = listedProfiles(c);
+    const said = [], shopLabel = selectedShop ? selectedShop.name : "This shop";
     if (listed.length && !listed.includes(profile)) {
       setProfile(listed[0]);
       // a panel the person picked or loaded: say it changed, rather than send one they never chose
-      if (profile && chosenProfile.current === profile) flash(`${selectedShop ? selectedShop.name : "This shop"} doesn't roll ${profile.split(" ")[0]} — switched to ${listed[0].split(" ")[0]}. Pick another panel if you need to.`, 6000);
+      if (profile && chosenProfile.current === profile) said.push(`${shopLabel} doesn't roll ${profile.split(" ")[0]} — switched to ${listed[0].split(" ")[0]}. Pick another panel if you need to.`);
       chosenProfile.current = null;
     }
     // clips for a profile this shop doesn't roll come off the order, and the person is told
-    const offClips = accessories.filter((a) => a.type === "Clips" && a.profile && !listed.includes(a.profile));
+    const offClips = accessories.filter((a) => a.type === "Clips" && clipProfileOf(a) && !listed.includes(clipProfileOf(a)));
     if (listed.length && offClips.length) {
       setAccessories((a) => a.filter((x) => !offClips.some((o) => o.id === x.id)));
-      flash(`${selectedShop ? selectedShop.name : "This shop"} doesn't roll ${[...new Set(offClips.map((o) => o.profile.split(" ")[0]))].join(", ")} — its clips came off the order.`, 6000);
+      const codes = [...new Set(offClips.map((o) => clipProfileOf(o).split(" ")[0]))].join(", ");
+      said.push(said.length ? `The ${codes} clips came off the order too.` : `${shopLabel} doesn't roll ${codes} — its clips came off the order.`);
     }
+    if (said.length) flash(said.join(" "), 6000);
     if (listed.length && !listed.includes(accProfile)) setAccProfile(listed[0]);
     if (!c.brands.includes(brand) && !c.unpainted.includes(brand)) {
       const b = c.brands[0] || c.unpainted[0];
@@ -6237,6 +6244,7 @@ export default function ShopOrderApp() {
   const loadVaultItem = (item, sourceLabel = "your Job Vault") => {
     const p = item.payload || {};
     let swapped = null; // a profile the shop it loads at doesn't roll, swapped for one it does
+    let moving = false; // it loads at another shop: that shop's catalog decides when it lands
     const kind = p.type || item.kind;
     if (editingId) restoreCanvas(); // a saved item is a new part, not the edited one
     setBoxReturn(null); setRoofBoxOpen(false); setBox3dReturn(false); // and not the box piece either
@@ -6281,7 +6289,7 @@ export default function ShopOrderApp() {
       setSupplierCo(p.metalSupplier || "Fortified Metal");
       // its shop: the one it was saved or sent to (older items name the fabricator only)
       const at = p.shopId && shops.some((s) => s.id === p.shopId) ? p.shopId : shops.find((s) => s.name === p.fabricator)?.id;
-      if (at && at !== shopId) pickShop(at); // the new shop's catalog then swaps a profile it doesn't roll, and says so
+      if (at && at !== shopId) { pickShop(at); moving = true; } // the new shop's catalog then swaps a profile it doesn't roll, and says so
       else if (!catalogReady) { /* the shop's catalog, when it lands, keeps it or swaps it and says so */ }
       else if (p.profile && !listedProfiles(activeCatalog).includes(p.profile) && listedProfiles(activeCatalog).length) {
         const first = listedProfiles(activeCatalog)[0];
@@ -6333,6 +6341,16 @@ export default function ShopOrderApp() {
     }
     // An older panel order sent with a panel count comes back as one run of its stored length,
     // which may be a quarter of what went in — say so beside the Length instead of guessing.
+    // clips for a profile this shop doesn't roll come off here too (no catalog change follows)
+    if (!moving && catalogReady && Array.isArray(p.accessories)) {
+      const listedNow = listedProfiles(activeCatalog);
+      const off = p.accessories.filter((a) => a && a.type === "Clips" && clipProfileOf(a) && !listedNow.includes(clipProfileOf(a)));
+      if (listedNow.length && off.length) {
+        setAccessories(p.accessories.filter((a) => !off.includes(a)));
+        const codes = [...new Set(off.map((o) => clipProfileOf(o).split(" ")[0]))].join(", ");
+        swapped = [swapped, `The ${codes} clips came off the order — ${selectedShop ? selectedShop.name : "this shop"} doesn't roll ${off.length > 1 ? "them" : "it"}.`].filter(Boolean).join(" ");
+      }
+    }
     const note = kind === "panel" ? panelReorderNote(p) : null;
     setPanelLoadNote(note || "");
     const told = [swapped, note].filter(Boolean).join(" ");
