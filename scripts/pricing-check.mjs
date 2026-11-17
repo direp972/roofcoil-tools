@@ -452,6 +452,36 @@ assert.deepEqual(listedProfiles(DEFAULT_CATALOG).map((p) => DEFAULT_CATALOG.prof
   ["FF100", "FWQ100", "SS100", "SS150", "SS450", "SSQ200", "SSQ675"], "the listed profiles are the seven New Tech ones");
 assert.ok(Object.entries(DEFAULT_CATALOG.profiles).filter(([, v]) => v.vendor === "adax").every(([, v]) => v.delisted), "every Adax profile is delisted");
 assert.equal(DEFAULT_CATALOG.profiles['US-100NS – 1" Nail Strip'].takeup, 3, "but an Adax profile still resolves for old orders");
+// The Adax US- profiles are off on the platform, so the main tool and every other fabricator
+// show New Tech profiles only. The live rows mark them as Adax's own (data.shop = Adax's shop
+// id), and Adax Metals' selection switches them on for Adax alone.
+const ADAX_ID = "11111111-2222-3333-4444-555555555555", CFR_ID = "99999999-8888-7777-6666-555555555555";
+const ADAX_ON = ['US-100NS – 1" Nail Strip', 'US-150 – 1.5" Mechanical Seam', 'US-150LS – 1.5" Snap-Lock', 'US-175LS – 1.75" Snap-Lock', 'US-200 – 2" Mechanical Seam', 'US-100FP – 1" Flush Wall / Soffit'];
+const adaxRows = catalogToRows(DEFAULT_CATALOG).map((r) => (r.kind === "profile" && r.data?.vendor === "adax" ? { ...r, data: { ...r.data, shop: ADAX_ID } } : r));
+const livePlatform = catalogFromRows(adaxRows); // as the live table reads, Adax's id on its profiles
+const adaxSel = { profiles: Object.fromEntries(ADAX_ON.map((n) => [n, true])) };
+const adaxShop = resolveCatalog(livePlatform, adaxSel, ADAX_ID);
+assert.deepEqual(listedProfiles(adaxShop).filter((p) => p.startsWith("US-")).sort(), [...ADAX_ON].sort(), "Adax Metals' selection switches its six US- profiles on");
+assert.equal(listedProfiles(adaxShop).length, 13, "next to the seven New Tech ones");
+assert.ok(adaxShop.profiles['US-100NS – 1" Nail Strip'].switchedOn && !adaxShop.profiles['US-100CS – 1" Snap-On Cap Seam'].switchedOn, "only the ones it names");
+const usPanel = { type: "panel", brand: "Fortified Metal", colorName: "Regal White", paintId: "pvdf", gaugeId: "24ga", profile: 'US-150 – 1.5" Mechanical Seam' };
+assert.ok(isOffered(adaxShop, usPanel).ok, "Adax Metals takes a US-150 order");
+assert.ok(!isOffered(livePlatform, usPanel).ok && !isOffered(resolveCatalog(livePlatform, null, CFR_ID), usPanel).ok, "the main tool and a shop without the switch refuse it");
+// another shop writing the same switches gets nothing: the profiles are Adax's
+const cfrTries = resolveCatalog(livePlatform, adaxSel, CFR_ID);
+assert.ok(!listedProfiles(cfrTries).some((p) => p.startsWith("US-")) && !isOffered(cfrTries, usPanel).ok, "another shop can't switch Adax's profiles on for itself");
+assert.ok(!listedProfiles(resolveCatalog(livePlatform, adaxSel, null)).some((p) => p.startsWith("US-")), "nor can a resolution with no shop");
+// the built-in fallback (the live table unreadable) marks them a shop's own with no id: off for everyone
+assert.ok(!listedProfiles(resolveCatalog(DEFAULT_CATALOG, adaxSel, ADAX_ID)).some((p) => p.startsWith("US-")), "the built-in fallback shows them to no shop");
+// only a profile marked as the shop's own can be switched on: one the platform delisted for
+// everyone (BB750) stays off, whoever asks
+assert.ok(!listedProfiles(resolveCatalog(livePlatform, { profiles: { "BB750 – Board and Batten": true } }, CFR_ID)).includes("BB750 – Board and Batten"), "an unowned delisted profile stays off");
+// an Adax row relisted on the platform by mistake is still Adax's alone
+const relisted = catalogFromRows(adaxRows.map((r) => (r.kind === "profile" && r.key === 'US-150 – 1.5" Mechanical Seam' ? { ...r, delisted: false } : r)));
+assert.ok(!listedProfiles(resolveCatalog(relisted, null, CFR_ID)).includes('US-150 – 1.5" Mechanical Seam') && !listedProfiles(resolveCatalog(relisted, null, null)).includes('US-150 – 1.5" Mechanical Seam'), "a relisted Adax row stays off at other shops and in the main tool");
+assert.ok(listedProfiles(resolveCatalog(relisted, null, ADAX_ID)).includes('US-150 – 1.5" Mechanical Seam'), "and on at Adax");
+assert.ok(!listedProfiles(resolveCatalog(livePlatform, { profiles: { 'SS450 – 1.5" Snap-Lock': true } }, CFR_ID)).includes('US-150 – 1.5" Mechanical Seam'), "true on a listed profile changes nothing else");
+assert.ok(!listedProfiles(resolveCatalog(livePlatform, { profiles: { "Nope – 9\" Seam": true } }, ADAX_ID)).includes("Nope – 9\" Seam"), "true on an unknown name adds nothing");
 const shop = resolveCatalog(DEFAULT_CATALOG, selection);
 assert.deepEqual(resolveCatalog(DEFAULT_CATALOG, null), DEFAULT_CATALOG, "no selection is the platform catalog");
 assert.ok(!shop.brands.includes("Berridge") && shop.brands.includes("B Select") && shop.brands.includes("B Kynar Only"), "brands follow the selection");

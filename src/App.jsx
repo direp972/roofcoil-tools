@@ -56,6 +56,9 @@ const getColorsForBrand = (brand, paintId) => catalogColorsForBrand(activeCatalo
 const findColor = (name, brand, paintId) => catalogFindColor(activeCatalog, name, brand, paintId);
 const findGauge = (gaugeId, brand) => catalogFindGauge(activeCatalog, gaugeId, brand);
 const PROFILES = () => listedProfiles(activeCatalog);
+// a Clips line's profile: the one it carries, or (lines saved before they carried one) the
+// catalog profile its label names
+const clipProfileOf = (a) => a.profile || Object.keys(activeCatalog.profiles).filter((p) => String(a.label || "").includes(p)).sort((x, y) => y.length - x.length)[0] || null;
 
 const clipSpecForProfile = (profile) => activeCatalog.clips[activeCatalog.profiles[profile]?.code] || null;
 
@@ -3377,7 +3380,7 @@ function FlatPatternSVG({ partType, w, d, h, capH, colorHex, outletShape, flange
 // in shop_settings (key `catalog`, docs/catalog-as-data-design.md §2.2); every change saves.
 const PROFILE_FAMILIES = [["snap", "Snap-lock"], ["mech", "Mechanical seam"], ["flush", "Flush wall / soffit"], ["flange", "Fastener flange / nail strip"], ["batten", "Batten"], ["trapezoid", "Trapezoid"]];
 const HEX = /^#[0-9a-fA-F]{6}$/;
-function CatalogSection({ platform, selection, onChange, theme, shopName }) {
+function CatalogSection({ platform, selection, onChange, theme, shopId, shopName }) {
   const sel = selection && typeof selection === "object" ? selection : {};
   const custom = sel.custom || {};
   const customBrands = Array.isArray(custom.brands) ? custom.brands : [];
@@ -3447,7 +3450,12 @@ function CatalogSection({ platform, selection, onChange, theme, shopName }) {
   const small = { fontSize: 10.5, color: theme.textSecondary };
   const input = { width: "100%", padding: 8, border: `1px solid ${theme.border}`, borderRadius: 6, fontSize: 12, background: theme.inputBg, color: theme.text, boxSizing: "border-box", marginTop: 4 };
   const btn = (primary) => ({ padding: "7px 12px", borderRadius: 6, border: primary ? "none" : `1px solid ${theme.border}`, background: primary ? INK : "transparent", color: primary ? "#fff" : theme.text, fontSize: 11.5, fontWeight: 700, cursor: "pointer" });
-  const platformListed = Object.keys(platform.profiles).filter((k) => !platform.profiles[k].delisted);
+  // listed platform profiles, less one marked as another shop's own (off here even if relisted)
+  const platformListed = Object.keys(platform.profiles).filter((k) => !platform.profiles[k].delisted && (!platform.profiles[k].shop || platform.profiles[k].shop === shopId));
+  // profiles the platform keeps off for everyone else and marks as this shop's own (data.shop):
+  // listed on or off, so one switched off can be switched on again
+  const ownProfiles = Object.keys(platform.profiles).filter((k) => platform.profiles[k].delisted && platform.profiles[k].shop && platform.profiles[k].shop === shopId);
+  const flipOn = (key, on) => { const m = { ...(sel.profiles || {}) }; if (on) m[key] = true; else delete m[key]; onChange({ ...sel, profiles: m }); };
   return (
     <div style={{ marginBottom: 18 }}>
       <div className="disp" style={{ fontSize: 12, color: SAFETY, marginBottom: 6 }}>Catalog</div>
@@ -3525,6 +3533,7 @@ function CatalogSection({ platform, selection, onChange, theme, shopName }) {
       <div style={{ ...small, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", margin: "12px 0 4px" }}>Panel profiles</div>
       <div style={{ ...row, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 4 }}>
         {platformListed.map((q) => <label key={q} style={{ ...label, fontSize: 11.5, fontWeight: 500 }}><input type="checkbox" checked={isOn(sel.profiles, q)} onChange={(e) => flip("profiles", q, e.target.checked)} /> <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{q}</span></label>)}
+        {ownProfiles.map((q) => <label key={q} title="This shop's own: no other fabricator shows it" style={{ ...label, fontSize: 11.5, fontWeight: 500 }}><input type="checkbox" checked={(sel.profiles || {})[q] === true} onChange={(e) => flipOn(q, e.target.checked)} /> <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{q} <span style={{ ...small, fontWeight: 400 }}>(this shop only)</span></span></label>)}
       </div>
       {customProfiles.map((q) => (
         <div key={q.name} style={{ ...row, display: "flex", alignItems: "center", gap: 8 }}>
@@ -3624,7 +3633,7 @@ function PlatformCatalogSection({ theme, userId, onChanged }) {
         : r.kind === "gauge" && r.parent_key === "painted" && listedCount("gauge", "painted") <= 1 ? "painted gauge" : r.kind === "profile" && listedCount("profile", "") <= 1 ? "profile" : null;
       if (last) { say(`Keep at least one ${last} listed — the tools can't run without one.`); return; }
     }
-    write(() => setCatalogItemDelisted(r, !r.delisted, userId), r.delisted ? `${r.key} is back in every shop's pickers.` : `${r.key} is delisted: out of every shop's pickers and the public pages; past orders still read right.`);
+    write(() => setCatalogItemDelisted(r, !r.delisted, userId), r.delisted ? (r.kind === "profile" && r.data?.shop ? `${r.key} is relisted — it is marked as one shop's own, so only that shop's pickers show it.` : `${r.key} is back in every shop's pickers.`) : `${r.key} is delisted: out of every shop's pickers and the public pages; past orders still read right.`);
   };
   const clearDraft = (r) => setHexDraft((d) => { const n = { ...d }; delete n[rid(r)]; return n; });
   const saveHex = (r) => {
@@ -4908,6 +4917,13 @@ export default function ShopOrderApp() {
   const [platformCatalog, setPlatformCatalog] = useState(DEFAULT_CATALOG);
   const [catalogSelection, setCatalogSelection] = useState(null);
   const [catalogTick, setCatalogTick] = useState(0);
+  // the shop the active catalog was resolved for (null signed out): until it is the shop picked,
+  // the pickers still show the last shop's catalog, so nothing is sent or saved
+  const [catalogFor, setCatalogFor] = useState(undefined);
+  // the profile the person picked or loaded (vault, past order): if a shop's catalog swaps it,
+  // say so; a default the page set is swapped quietly
+  const chosenProfile = useRef(null);
+  const catalogReady = catalogFor === (user && shopId ? shopId : null);
   useEffect(() => {
     let stale = false;
     (async () => {
@@ -4916,7 +4932,8 @@ export default function ShopOrderApp() {
       if (stale) return;
       setPlatformCatalog(platform);
       setCatalogSelection(selection);
-      setActiveCatalog(resolveCatalog(platform, selection));
+      setActiveCatalog(resolveCatalog(platform, selection, shopId || null));
+      setCatalogFor(user && shopId ? shopId : null);
       setCatalogTick((t) => t + 1);
     })();
     return () => { stale = true; };
@@ -4924,7 +4941,7 @@ export default function ShopOrderApp() {
   }, [shopId, user?.id]);
   const saveCatalogSelection = async (next) => {
     setCatalogSelection(next);
-    setActiveCatalog(resolveCatalog(platformCatalog, next));
+    setActiveCatalog(resolveCatalog(platformCatalog, next, shopId || null));
     setCatalogTick((t) => t + 1);
     try { await shopStorage.set(shopId, "catalog", JSON.stringify(next)); }
     catch (e) { console.error("storage error", e); }
@@ -4935,7 +4952,7 @@ export default function ShopOrderApp() {
   const refreshPlatformCatalog = async () => {
     const platform = await loadPlatformCatalog();
     setPlatformCatalog(platform);
-    setActiveCatalog(resolveCatalog(platform, catalogSelection));
+    setActiveCatalog(resolveCatalog(platform, catalogSelection, shopId || null));
     setCatalogTick((t) => t + 1);
   };
   // A pick the new catalog does not offer moves to the first thing it does, so the form and
@@ -4944,7 +4961,21 @@ export default function ShopOrderApp() {
     if (catalogTick === 0) return;
     const c = activeCatalog;
     const listed = listedProfiles(c);
-    if (listed.length && !listed.includes(profile)) setProfile(listed[0]);
+    const said = [], shopLabel = selectedShop ? selectedShop.name : "This shop";
+    if (listed.length && !listed.includes(profile)) {
+      setProfile(listed[0]);
+      // a panel the person picked or loaded: say it changed, rather than send one they never chose
+      if (profile && chosenProfile.current === profile) said.push(`${shopLabel} doesn't roll ${profile.split(" ")[0]} — switched to ${listed[0].split(" ")[0]}. Pick another panel if you need to.`);
+      chosenProfile.current = null;
+    }
+    // clips for a profile this shop doesn't roll come off the order, and the person is told
+    const offClips = accessories.filter((a) => a.type === "Clips" && clipProfileOf(a) && !listed.includes(clipProfileOf(a)));
+    if (listed.length && offClips.length) {
+      setAccessories((a) => a.filter((x) => !offClips.some((o) => o.id === x.id)));
+      const codes = [...new Set(offClips.map((o) => clipProfileOf(o).split(" ")[0]))].join(", ");
+      said.push(said.length ? `The ${codes} clips came off the order too.` : `${shopLabel} doesn't roll ${codes} — its clips came off the order.`);
+    }
+    if (said.length) flash(said.join(" "), 6000);
     if (listed.length && !listed.includes(accProfile)) setAccProfile(listed[0]);
     if (!c.brands.includes(brand) && !c.unpainted.includes(brand)) {
       const b = c.brands[0] || c.unpainted[0];
@@ -5884,7 +5915,7 @@ export default function ShopOrderApp() {
       const cs = clipSpecForProfile(accProfile);
       label = cs ? `Clips ${cs.code} — ${accProfile} (${cs.perBox}/box, ${(qty * cs.perBox).toLocaleString()} clips total)` : `Clips — ${accProfile}`;
     }
-    setAccessories((a) => [...a, { id: uid(), type: accType, label, qty }]);
+    setAccessories((a) => [...a, { id: uid(), type: accType, label, qty, ...(accType === "Clips" ? { profile: accProfile } : {}) }]);
     setAccQty(1);
   };
   const removeAccessory = (id) => setAccessories((a) => a.filter((x) => x.id !== id));
@@ -5903,6 +5934,7 @@ export default function ShopOrderApp() {
     // The button already asks a signed-out visitor to sign up; this is the backstop
     // so no other path can put an anonymous order in front of the shop.
     if (isDemo) { openAuth("signup"); return; }
+    if (!catalogReady) { flash("Loading this shop's catalog — send again in a moment.", 3000); return; }
     // A shop's own people drawing at their shop while ordering is still off: submit-order
     // would refuse anyway; say why, and where the switch is.
     if (shopInfo && shopInfo.id === shopId && !shopInfo.accepts_orders) { flash("Ordering is off for your shop — switch it on in Shop Floor → Shop Settings.", 5000); return; }
@@ -6103,6 +6135,7 @@ export default function ShopOrderApp() {
         sheetWidth: it.sheetWidth, gaugeId: it.gaugeId, paintId: it.paintId, brand: it.brand,
         colorName: it.colorName, colorHex: it.colorHex, photo: it.photo || null,
         accessories: idx === 0 && accessories.length > 0 ? accessories : undefined,
+        shopId: shopId || undefined,
       }));
     }
     const isMetal = shapeType === "metal";
@@ -6123,6 +6156,7 @@ export default function ShopOrderApp() {
       jobSiteMiles: shapeType === "panel" && runLocation === "Job Site" ? (+jobSiteMiles || 0) : undefined,
       metalSupplier: shapeType === "panel" ? supplierCo : undefined,
       fabricator: shapeType === "panel" ? fabricatorCo : undefined,
+      shopId: shopId || undefined, // the shop it was priced at, to reopen there
       partType: isPart3d ? partType : undefined,
       partW: isPart3d ? partW : undefined,
       partD: isPart3d ? partD : undefined,
@@ -6166,6 +6200,7 @@ export default function ShopOrderApp() {
   };
 
   const saveToVault = async (jobNameRaw) => {
+    if (!catalogReady) { setToast("Loading this shop's catalog — try again in a second."); setTimeout(() => setToast(""), 3000); return; }
     if (!priceListLoaded) { setToast("Still loading current prices — try again in a second."); setTimeout(() => setToast(""), 3000); return; }
     const jobName = (jobNameRaw || "").trim() || "My Job";
     const payloads = buildVaultPayloads();
@@ -6208,6 +6243,8 @@ export default function ShopOrderApp() {
   // Also powers "Reorder" from Past Orders — order objects are payload-shaped.
   const loadVaultItem = (item, sourceLabel = "your Job Vault") => {
     const p = item.payload || {};
+    let swapped = null; // a profile the shop it loads at doesn't roll, swapped for one it does
+    let moving = false; // it loads at another shop: that shop's catalog decides when it lands
     const kind = p.type || item.kind;
     if (editingId) restoreCanvas(); // a saved item is a new part, not the edited one
     setBoxReturn(null); setRoofBoxOpen(false); setBox3dReturn(false); // and not the box piece either
@@ -6237,7 +6274,7 @@ export default function ShopOrderApp() {
       if (p.sheetWidth != null) setSheetWidth(p.sheetWidth);
       setViewResetKey((k) => k + 1);
     } else if (kind === "panel") {
-      if (p.profile) setProfile(p.profile);
+      if (p.profile) { setProfile(p.profile); chosenProfile.current = p.profile; }
       // width re-derives from coilWidth + profile; orders sent before panel orders stored
       // their coil width carry only the pan width, so their coil is rebuilt from it — on the
       // sixteenth when that makes the same pan (16.88" of SS450 reloads on a 21" coil)
@@ -6250,7 +6287,15 @@ export default function ShopOrderApp() {
       setJobSiteAddress(p.jobSiteAddress || "");
       setJobSiteMiles(p.jobSiteMiles ?? "");
       setSupplierCo(p.metalSupplier || "Fortified Metal");
-      if (p.shopId && shops.some((s) => s.id === p.shopId)) pickShop(p.shopId);
+      // its shop: the one it was saved or sent to (older items name the fabricator only)
+      const at = p.shopId && shops.some((s) => s.id === p.shopId) ? p.shopId : shops.find((s) => s.name === p.fabricator)?.id;
+      if (at && at !== shopId) { pickShop(at); moving = true; } // the new shop's catalog then swaps a profile it doesn't roll, and says so
+      else if (!catalogReady) { /* the shop's catalog, when it lands, keeps it or swaps it and says so */ }
+      else if (p.profile && !listedProfiles(activeCatalog).includes(p.profile) && listedProfiles(activeCatalog).length) {
+        const first = listedProfiles(activeCatalog)[0];
+        setProfile(first);
+        swapped = `${selectedShop ? selectedShop.name : "This shop"} doesn't roll ${p.profile.split(" ")[0]} — loaded as ${first.split(" ")[0]}. Pick another panel if you need to.`;
+      }
     } else if (kind === "metal") {
       if (p.flatWidth != null) setFlatWidth(p.flatWidth);
       if (p.flatLength != null) setFlatLength(p.flatLength);
@@ -6296,10 +6341,21 @@ export default function ShopOrderApp() {
     }
     // An older panel order sent with a panel count comes back as one run of its stored length,
     // which may be a quarter of what went in — say so beside the Length instead of guessing.
+    // clips for a profile this shop doesn't roll come off here too (no catalog change follows)
+    if (!moving && catalogReady && Array.isArray(p.accessories)) {
+      const listedNow = listedProfiles(activeCatalog);
+      const off = p.accessories.filter((a) => a && a.type === "Clips" && clipProfileOf(a) && !listedNow.includes(clipProfileOf(a)));
+      if (listedNow.length && off.length) {
+        setAccessories(p.accessories.filter((a) => !off.includes(a)));
+        const codes = [...new Set(off.map((o) => clipProfileOf(o).split(" ")[0]))].join(", ");
+        swapped = [swapped, `The ${codes} clips came off the order — ${selectedShop ? selectedShop.name : "this shop"} doesn't roll ${off.length > 1 ? "them" : "it"}.`].filter(Boolean).join(" ");
+      }
+    }
     const note = kind === "panel" ? panelReorderNote(p) : null;
     setPanelLoadNote(note || "");
-    setToast(note || `Loaded "${vaultItemLabel(item)}" from ${sourceLabel} — adjust anything and send when ready.`);
-    setTimeout(() => setToast(""), note ? 9000 : 4000);
+    const told = [swapped, note].filter(Boolean).join(" ");
+    setToast(told || `Loaded "${vaultItemLabel(item)}" from ${sourceLabel} — adjust anything and send when ready.`);
+    setTimeout(() => setToast(""), told ? 9000 : 4000);
   };
 
   const updateStatus = async (id, status) => {
@@ -7543,7 +7599,7 @@ export default function ShopOrderApp() {
                                 const pCode = dash > 0 ? p.slice(0, dash).trim() : p;
                                 const pSpec = dash > 0 ? p.slice(dash + 1).trim() : (activeCatalog.profiles[p]?.desc || "");
                                 return (
-                                  <button key={p} onClick={() => { setProfile(p); setShowPanelCatalog(false); }} className="tap-bounce"
+                                  <button key={p} onClick={() => { setProfile(p); chosenProfile.current = p; setShowPanelCatalog(false); }} className="tap-bounce"
                                     style={{
                                       padding: 0, borderRadius: 10, overflow: "hidden", cursor: "pointer", textAlign: "center",
                                       border: active ? `2px solid ${SAFETY}` : `1px solid ${theme.border}`, background: theme.card,
@@ -8806,7 +8862,7 @@ export default function ShopOrderApp() {
 
               {isStaff && <PlatformCatalogSection theme={theme} userId={user?.id} onChanged={refreshPlatformCatalog} />}
 
-              <CatalogSection platform={platformCatalog} selection={catalogSelection} onChange={saveCatalogSelection} theme={theme} shopName={selectedShop ? selectedShop.name : "this shop"} />
+              <CatalogSection platform={platformCatalog} selection={catalogSelection} onChange={saveCatalogSelection} theme={theme} shopId={shopId} shopName={selectedShop ? selectedShop.name : "this shop"} />
 
               <div style={{ marginBottom: 18 }}>
                 <div className="disp" style={{ fontSize: 12, color: SAFETY, marginBottom: 6 }}>Raw Material Cost (per sq ft)</div>
