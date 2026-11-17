@@ -297,7 +297,8 @@ function generatePanelIsoSvg(profileLabel, ribStyle, idSuffix) {
 // Coordinates are city-center approximations for the distance estimate — edit the
 // profiles arrays here as vendor lineups change.
 // The panel catalog's sections, from the active catalog: the New Tech profiles, Adax's,
-// and the selected shop's own (vendor "shop"), the last one only when it has some.
+// and the selected shop's own (vendor "shop"). A section shows only while it has a listed
+// profile (every Adax profile is delisted today).
 const panelVendors = () => {
   const listed = PROFILES();
   const own = listed.filter((p) => activeCatalog.profiles[p].vendor === "shop");
@@ -312,8 +313,8 @@ const panelVendors = () => {
       city: "Weatherford", state: "TX", lat: 32.7593, lng: -97.7972, // 1901 B Mineral Wells Hwy, Weatherford, TX 76088
       profiles: listed.filter((p) => activeCatalog.profiles[p].vendor === "adax"),
     },
-    ...(own.length ? [{ id: "shop", name: "This shop's own", tagline: "Profiles the shop rolls on its own machine", profiles: own }] : []),
-  ];
+    { id: "shop", name: "This shop's own", tagline: "Profiles the shop rolls on its own machine", profiles: own },
+  ].filter((v) => v.profiles.length);
 };
 
 function distanceMiles(a, b) {

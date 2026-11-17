@@ -439,7 +439,7 @@ const selection = {
   brands: { Berridge: false },
   colors: { "Una-Clad": { Brandywine: false } },
   materials: { Bonderized: false },
-  profiles: { 'US-150 – 1.5" Mechanical Seam': false },
+  profiles: { 'SS100 – 1" Mechanical Seam': false },
   custom: {
     brands: [{ name: "B Select", base: "painted-steel", paints: ["pvdf", "smp"], gauges: ["24ga", "26ga"], colors: [{ name: "B Bronze", hex: "#4A3E36" }, { name: "B Slate", hex: "#565B5E", premium: true }] },
              { name: "B Kynar Only", base: "painted-steel", paints: ["pvdf"], gauges: ["24ga"], colors: [{ name: "B White", hex: "#EEEEEE" }] }],
@@ -447,6 +447,11 @@ const selection = {
   },
   retired: { brands: [{ name: "B Old", colors: [{ name: "B Old Red", hex: "#AA0000", premium: true }] }], profiles: [{ name: "B-100 – 1\" Snap-Lock", code: "B100", family: "snap", takeup: 3 }] },
 };
+// The platform offers New Tech Machinery profiles only: every Adax (US-) profile is delisted.
+assert.deepEqual(listedProfiles(DEFAULT_CATALOG).map((p) => DEFAULT_CATALOG.profiles[p].code).sort(),
+  ["FF100", "FWQ100", "SS100", "SS150", "SS450", "SSQ200", "SSQ675"], "the listed profiles are the seven New Tech ones");
+assert.ok(Object.entries(DEFAULT_CATALOG.profiles).filter(([, v]) => v.vendor === "adax").every(([, v]) => v.delisted), "every Adax profile is delisted");
+assert.equal(DEFAULT_CATALOG.profiles['US-100NS – 1" Nail Strip'].takeup, 3, "but an Adax profile still resolves for old orders");
 const shop = resolveCatalog(DEFAULT_CATALOG, selection);
 assert.deepEqual(resolveCatalog(DEFAULT_CATALOG, null), DEFAULT_CATALOG, "no selection is the platform catalog");
 assert.ok(!shop.brands.includes("Berridge") && shop.brands.includes("B Select") && shop.brands.includes("B Kynar Only"), "brands follow the selection");
@@ -456,7 +461,7 @@ assert.equal(findColor(shop, "Brandywine", "Una-Clad", "pvdf")?.hex, "#6E2F28", 
 assert.equal(findColor(shop, "Buckskin", "Berridge", "pvdf")?.hex, "#8A7B65", "a switched-off brand's color still resolves");
 assert.equal(findColor(shop, "B Old Red", "B Old", "pvdf")?.premium, true, "a retired brand's color still resolves");
 assert.ok(!shop.brands.includes("B Old"), "a retired brand is not offered");
-assert.ok(!listedProfiles(shop).includes('US-150 – 1.5" Mechanical Seam') && shop.profiles['US-150 – 1.5" Mechanical Seam'].takeup === 4.5, "a switched-off profile leaves the pickers but keeps its takeup");
+assert.ok(!listedProfiles(shop).includes('SS100 – 1" Mechanical Seam') && shop.profiles['SS100 – 1" Mechanical Seam'].takeup === 3, "a switched-off profile leaves the pickers but keeps its takeup");
 assert.ok(listedProfiles(shop).includes('B-150 – 1.5" Snap-Lock') && shop.profiles['B-150 – 1.5" Snap-Lock'].vendor === "shop", "the shop's own profile is listed");
 assert.ok(!listedProfiles(shop).includes('B-100 – 1" Snap-Lock') && shop.profiles['B-100 – 1" Snap-Lock'].retired, "a retired profile still resolves");
 assert.deepEqual(shop.rules.pvdfOnly.filter((b) => b.startsWith("B ")), [], "two paints and two gauges: no rule");
@@ -473,7 +478,7 @@ assert.ok(!isOffered(shop, { ...trim, brand: "Berridge", colorName: "Buckskin" }
 assert.ok(!isOffered(shop, { ...trim, brand: "Una-Clad", colorName: "Brandywine" }).ok, "a switched-off color is refused");
 assert.ok(isOffered(shop, ownTrim).ok && isOffered(shop, ownPanel).ok, "the shop's own line and profile are offered");
 assert.ok(!isOffered(DEFAULT_CATALOG, ownPanel).ok, "the shop's own profile is not offered at a shop without it");
-assert.ok(!isOffered(shop, { ...panel, profile: 'US-150 – 1.5" Mechanical Seam' }).ok, "a switched-off profile is refused");
+assert.ok(!isOffered(shop, { ...panel, profile: 'SS100 – 1" Mechanical Seam' }).ok, "a switched-off profile is refused");
 assert.ok(!isOffered(shop, { ...trim, brand: "Bonderized", colorName: "Bonderized (Mill Finish)" }).ok && isOffered(shop, { ...trim, brand: "Copper", colorName: "Natural Copper (Mill Finish)" }).ok, "bare metals follow the selection");
 const collide = resolveCatalog(DEFAULT_CATALOG, { custom: { brands: [{ name: "Berridge", colors: [{ name: "X", hex: "#000000" }] }], profiles: [{ name: 'SS450 – 1.5" Snap-Lock', code: "SS450", family: "snap", takeup: 1 }] } });
 assert.deepEqual(collide.colors.Berridge, DEFAULT_CATALOG.colors.Berridge, "a custom item cannot shadow a platform item");
