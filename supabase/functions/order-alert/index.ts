@@ -29,6 +29,7 @@
 //   TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_FROM / ALERT_SMS_TO — Twilio route (wins over gateway)
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { panelRunText } from "../_shared/pricing.mjs";
 
 const BATCH_SETTLE_MS = 8000;
 const PHONE = "972-944-7963";
@@ -62,8 +63,12 @@ function describeItem(it: Record<string, unknown>): string {
     type === "part3d" ? `3D part${it.partName ? ` (${it.partName})` : it.partType ? ` (${it.partType})` : ""}` :
     type;
   bits.push(label.trim());
-  if (it.quantity != null) bits.push(`qty ${it.quantity}`);
-  if (it.height != null && type === "panel") bits.push(`${it.height}" long`);
+  // A panel order is one run, so it reads as its total length and the coil it comes off,
+  // in the same words as the shop's ticket: 17" panel from 21" coil, 71' 1" total length.
+  // (It printed qty 1 · 853.08" long, which reads like one 71 ft panel.) An older panel order
+  // sent with a panel count keeps it: Qty 4 × 16.88" panel, 2400' long.
+  if (type === "panel") bits.push(panelRunText(it));
+  else if (it.quantity != null) bits.push(`qty ${it.quantity}`);
   if (it.lengthPerPiece != null && type === "trim") bits.push(`${it.lengthPerPiece}' each`);
   if (it.colorName) bits.push(String(it.colorName));
   if (it.brand) bits.push(String(it.brand));

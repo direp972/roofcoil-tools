@@ -241,13 +241,23 @@ sheet over the chooser.
   tier prices stay in that payload because the app computes every estimate in the browser.
 - **Every estimate and order is priced at the account's assigned tier**, and the order's
   price is set on the server. The pricing code and the catalog it needs live in
-  `supabase/functions/_shared/pricing.mjs`, shared by the app and the `submit-order` Edge
-  Function: the app shows the estimate as the person types, and on Send the function
+  `supabase/functions/_shared/pricing.mjs` and `catalog.mjs`, shared by the app and the
+  `submit-order` and `order-alert` Edge Functions (deploy each with its `index.ts` and both
+  `_shared` files, `--no-verify-jwt`: order-alert is called by the database without a JWT): the app shows the estimate as the person types, and on Send the function
   prices the order again at that account's tier against the shop's live Price List, writes
   the row itself and replies with the real price. Once the build that calls it is live,
   apply `supabase/migrations/20261017200506_orders_server_priced.sql`, which drops the
   browser's insert right on `orders`, so a tampered page can't send a price of its own.
-  `node scripts/pricing-check.mjs` checks the tier math against the seed price list.
+  `node scripts/pricing-check.mjs` checks the tier math against the seed price list, and
+  the panel math: a panel order is one run (quantity 1, Length is the whole of it), priced
+  in linear feet: the coil fed at the shop's Coil Width Price Scale band for its width
+  (PVDF; SMP and unpainted steel at the SMP/PVDF ratio; copper at its Price List row across
+  the coil width), fabrication on the Price List's $/LF on every metal (copper at twice it), the run charged coil + fabrication or the $200 shop /
+  $600 job-site minimum when that is more (never both), with no order charge on a panel, and `submit-order` refuses a pan width that isn't
+  the coil minus the profile's takeup. It also checks the panel form's own pieces: the
+  estimate, the order and the Job Vault save come from one `panelOrderFields`, a typed pan
+  width keeps its coil, and the ticket, order lists, email and Reorder note read a panel as
+  its total length. CI runs it before the build.
 - The first staff member is added by SQL (step 7). After that, platform staff grant or
   revoke platform admin with the **Platform** button in the **Customer Pricing Tiers**
   panel, and a shop's owners give their own people the shop's backend with **Admin**;

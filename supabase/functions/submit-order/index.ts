@@ -32,7 +32,7 @@
 // see migration 20261017200506_orders_server_priced.sql.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { computePrice, sellTierFor, DEFAULT_PRICE_LIST, DEFAULT_COIL_WIDTH_SCALE } from "../_shared/pricing.mjs";
+import { computePrice, panelCoilWidthIn, panelOrderProblem, sellTierFor, DEFAULT_PRICE_LIST, DEFAULT_COIL_WIDTH_SCALE } from "../_shared/pricing.mjs";
 import { DEFAULT_CATALOG, catalogFromRows, isUsableCatalog, resolveCatalog, isOffered } from "../_shared/catalog.mjs";
 
 const CORS = {
@@ -59,7 +59,8 @@ const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE
 async function shopList(shopId: string, key: string, fallback: any[]): Promise<any[]> {
   const { data, error } = await admin.from("shop_settings").select("value").eq("shop_id", shopId).eq("key", key).maybeSingle();
   if (error) throw new Error(`shop_settings ${key}: ${error.message}`);
-  return Array.isArray(data?.value) ? data.value : fallback;
+  // a list saved empty counts as unsaved, as customer_price_list (null for []) and the app read it
+  return Array.isArray(data?.value) && data.value.length ? data.value : fallback;
 }
 
 // A shop's catalog selection (shop_settings key 'catalog'), or null when it has none.
@@ -157,6 +158,16 @@ Deno.serve(async (req: Request) => {
     // Only what the shop offers: a brand, color or profile the pickers would not have shown is refused.
     const offered = isOffered(catalog, order);
     if (!offered.ok) return json({ error: offered.reason }, 400);
+    // A panel's price follows its pan width and the coil it is rolled from, so neither is
+    // taken on the browser's word: one run (quantity 1), a sane pan width, and a pan that is
+    // the coil minus the profile's takeup in this live catalog — the one the app prices with,
+    // so a page holding an older takeup is refused here rather than priced on it.
+    if (order.type === "panel") {
+      const problem = panelOrderProblem(order, catalog);
+      if (problem) return json({ error: problem }, 400);
+      // the coil it is priced on goes on the row, for the shop's coil pull
+      if (order.coilWidth == null) order.coilWidth = panelCoilWidthIn(order, catalog);
+    }
     let price: number;
     try { price = computePrice(order, priceList, coilWidthScale, tier, catalog); } catch { return json({ error: "That order can't be priced." }, 400); }
     if (!Number.isFinite(price) || price < 0) return json({ error: "That order can't be priced." }, 400);

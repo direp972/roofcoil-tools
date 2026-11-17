@@ -1,7 +1,7 @@
 // The catalog: the paint lines and their colors, the bare metals, the gauges and their
 // fallback rates, the paint systems, the panel profiles, the clips and the accessories, as
-// data. Shared by the app (src/App.jsx) and the submit-order Edge Function through
-// pricing.mjs, so an order is priced against exactly the catalog the estimate used.
+// data. Shared by the app (src/App.jsx) and the submit-order and order-alert Edge Functions
+// through pricing.mjs, so an order is priced against exactly the catalog the estimate used.
 // DEFAULT_CATALOG is Fortified Sheet Metal's catalog as first seeded and what everything
 // falls back to; docs/catalog-as-data-design.md is the plan for the platform table and the
 // per-shop selection that replace it. Plain ESM with no imports: Vite bundles it into the
@@ -315,6 +315,15 @@ export const listedProfiles = (catalog) => Object.keys(catalog.profiles).filter(
 export const profileInfo = (catalog, profile) => catalog.profiles[profile] || null;
 export const profileFamily = (catalog, profile) => catalog.profiles[profile]?.family || "mech";
 export const clipSpecForProfile = (catalog, profile) => catalog.clips[catalog.profiles[profile]?.code] || null;
+
+// A profile's takeup as typed into a catalog editor (adding a profile or changing one):
+// { takeup } when it is a usable number of inches, or { problem } in words for shop staff.
+// Blank is refused rather than read as 0 — a 0 takeup makes the pan as wide as the coil.
+export function readTakeup(v) {
+  const t = typeof v === "number" ? v : String(v ?? "").trim() === "" ? NaN : Number(v);
+  if (!Number.isFinite(t) || t < 0) return { problem: "Takeup is the coil width minus the finished coverage, in inches." };
+  return { takeup: t };
+}
 
 /* ------------------------------------ rows and back ------------------------------------ */
 // The platform table (public.catalog_items) holds this same catalog as rows: one per brand,

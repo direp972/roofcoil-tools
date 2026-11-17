@@ -193,7 +193,7 @@ Today it reads the global `shop-price-list` / `shop-coil-width-scale` keys and `
 4. Tier = `shop_customers(shop, user).tier`, else `tier2` (`sellTierFor` unchanged).
 5. After a successful insert, upsert `shop_customers(shop, user)` with `tier2` if there is no row yet (§2.4).
 
-The function keeps using the service role, so none of this depends on RLS from inside the function; the checks above are explicit. Redeployed with `index.ts` + `../_shared/pricing.mjs` as today. `verify_jwt` stays on.
+The function keeps using the service role, so none of this depends on RLS from inside the function; the checks above are explicit. Redeployed with `index.ts` + `../_shared/pricing.mjs` + `../_shared/catalog.mjs`, `verify_jwt` off (as deployed; the function checks the caller's token itself).
 
 ---
 
