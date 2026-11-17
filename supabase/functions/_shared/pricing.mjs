@@ -295,16 +295,19 @@ export function panelPriceParts(order, priceList, tier, catalog = DEFAULT_CATALO
   const colorObj = findColor(catalog, order.colorName, order.brand, order.paintId);
   const premiumMult = colorObj?.premium ? 1.12 : 1;
   const coilIn = panelCoilWidthIn(order, catalog);
-  const runFt = (order.height / 12) * order.quantity;           // feet of panel, and of coil
+  // Linear feet, rates and amounts are each kept to the cent (feet to the hundredth), so the
+  // math the panel form shows (LF x $/LF = $) is the math that prices the order, to the cent.
+  const runFt = cents((order.height / 12) * order.quantity);    // linear feet of panel, and of coil
   const band = order.brand === "Copper" ? null : coilBandForWidth(coilIn, coilWidthScale);
   const pvdfMult = findPaint(catalog, "pvdf")?.mult || 1;
-  const coilPerFt = band                                         // $ per foot of panel for the coil
+  const coilPerFt = cents(band                                   // $ per linear foot of coil
     ? band.pricePerFt * (paint.mult / pvdfMult)
-    : rates.coilSqft * (coilIn / 12) * paint.mult;
+    : rates.coilSqft * (coilIn / 12) * paint.mult);
   const coilBandIn = band ? band.width : null;
-  const fabPerFt = rates.fabFt || 0;                             // $ per foot of panel
-  const coilCost = coilPerFt * runFt;
-  const fabCost = fabPerFt * runFt;
+  const coilBandPerFt = band ? band.pricePerFt : null;
+  const fabPerFt = cents(rates.fabFt || 0);                      // $ per linear foot of panel
+  const coilCost = cents(coilPerFt * runFt);
+  const fabCost = cents(fabPerFt * runFt);
   // Run minimum: a gate, not a charge on top. A run whose coil and fabrication come to less
   // than $200 shop-rolled ($600 on a job site, for hauling the roll former) is charged the
   // minimum; past it, the run is the coil and fabrication at their per-foot rates.
@@ -313,7 +316,47 @@ export function panelPriceParts(order, priceList, tier, catalog = DEFAULT_CATALO
   // $2/mile one way past 40 miles from the nearest roll-forming base
   const mileage = order.runLocation === "Job Site" ? mileageCharge(order.jobSiteMiles) : 0;
   const base = Math.max(coilCost + fabCost, runMin) + mileage;
-  return { coilIn, coilBandIn, runFt, coilPerFt, fabPerFt, coilCost, fabCost, runMin, atMin, mileage, premiumMult, total: base * premiumMult };
+  return { coilIn, coilBandIn, coilBandPerFt, paintMult: paint.mult, runFt, coilPerFt, fabPerFt, coilCost, fabCost, runMin, atMin, mileage, premiumMult, total: cents(base * premiumMult) };
+}
+const cents = (n) => Math.round((+n || 0) * 100) / 100;
+const dollars = (n) => "$" + (+n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const linearFeet = (n) => (+n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " LF";
+
+// The panel price worked out line by line in linear feet, for the panel form: each line is
+// { label, math, amount }, and the amounts are the ones the price is added up from.
+//   Coil           71.09 LF x $3.03/LF (up-to-21" band)        $215.40
+//   Fabrication    71.09 LF x $0.65/LF                         $46.21
+//   Run minimum    coil + fabrication ... under the $200 shop minimum   $200.00   (when it applies)
+//   Mileage        35 mi past 40 x $2.00/mi                    $70.00    (job site past 40 mi)
+//   Premium color  $261.61 x 1.12                              $31.39    (premium colors)
+//   Total                                                      $261.61
+export function panelPriceMath(parts, order = {}) {
+  const copper = order.brand === "Copper";
+  let coilWhy;
+  if (parts.coilBandIn) {
+    coilWhy = parts.coilPerFt === cents(parts.coilBandPerFt)
+      ? `up-to-${parts.coilBandIn}" band`
+      : `up-to-${parts.coilBandIn}" band ${dollars(parts.coilBandPerFt)}, SMP / unpainted rate`;
+  } else {
+    coilWhy = `${+(+parts.coilIn).toFixed(3)}" ${copper ? "copper" : "coil"}`;
+  }
+  const lines = [
+    { label: "Coil", math: `${linearFeet(parts.runFt)} \u00d7 ${dollars(parts.coilPerFt)}/LF (${coilWhy})`, amount: parts.coilCost },
+    { label: "Fabrication", math: `${linearFeet(parts.runFt)} \u00d7 ${dollars(parts.fabPerFt)}/LF${copper ? " (copper, twice the fabrication rate)" : ""}`, amount: parts.fabCost },
+  ];
+  if (parts.atMin) {
+    const where = order.runLocation === "Job Site" ? "job-site" : "shop";
+    lines.push({ label: "Run minimum", math: `coil + fabrication ${dollars(cents(parts.coilCost + parts.fabCost))} is under the ${dollars(parts.runMin)} ${where} minimum`, amount: parts.runMin });
+  }
+  if (parts.mileage > 0) {
+    lines.push({ label: "Mileage", math: `${+(parts.mileage / MILEAGE_RATE).toFixed(1)} mi past ${MILEAGE_FREE} \u00d7 ${dollars(MILEAGE_RATE)}/mi`, amount: parts.mileage });
+  }
+  if (parts.premiumMult !== 1) {
+    const before = cents(Math.max(parts.coilCost + parts.fabCost, parts.runMin) + parts.mileage);
+    lines.push({ label: "Premium color", math: `${dollars(before)} \u00d7 ${parts.premiumMult}`, amount: cents(parts.total - before) });
+  }
+  lines.push({ label: "Total", math: "", amount: parts.total });
+  return lines;
 }
 
 // Feet and inches from inches, as the shop reads a length: 853.08 -> 71' 1", 240 -> 20'.

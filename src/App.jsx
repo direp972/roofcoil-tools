@@ -4,7 +4,7 @@ import * as THREE from "three";
 import { storage, shopStorage } from "./lib/storage";
 import { supabase } from "./lib/supabaseClient";
 import { useAuth } from "./lib/AuthProvider";
-import { scupperSpec, scupperBack, MILEAGE_FREE, MILEAGE_RATE, mileageCharge, coilPriceForWidth, getSellRates, computePrice, panelPriceParts, panelCoilWidthIn, panelOrderProblem, panelOrderFields, panelPanForCoil, panelCoilForPan, panelRunText, orderAmountText, panelReorderNote, paintFor, sellRate, sellTierFor, DEFAULT_PRICE_LIST, DEFAULT_COIL_WIDTH_SCALE } from "../supabase/functions/_shared/pricing.mjs";
+import { scupperSpec, scupperBack, MILEAGE_FREE, MILEAGE_RATE, mileageCharge, coilPriceForWidth, getSellRates, computePrice, panelPriceParts, panelCoilWidthIn, panelOrderProblem, panelOrderFields, panelPanForCoil, panelCoilForPan, panelRunText, orderAmountText, panelReorderNote, paintFor, panelPriceMath, sellRate, sellTierFor, DEFAULT_PRICE_LIST, DEFAULT_COIL_WIDTH_SCALE } from "../supabase/functions/_shared/pricing.mjs";
 import { DEFAULT_CATALOG, listedProfiles, resolveCatalog, readTakeup, getColorsForBrand as catalogColorsForBrand, findColor as catalogFindColor, findGauge as catalogFindGauge, findPaint as catalogFindPaint } from "../supabase/functions/_shared/catalog.mjs";
 import { loadPlatformCatalog, loadPlatformCatalogRows, invalidatePlatformCatalog, addCatalogItem, setCatalogItemDelisted, setCatalogItemData, loadShopCatalogSelection } from "./lib/catalog";
 
@@ -7714,9 +7714,17 @@ export default function ShopOrderApp() {
                   </div>
                 )}
                 {!isDemo && !coilOverMax && (
-                  <div data-testid="panel-rate-note" style={{ fontSize: 10, color: theme.textSecondary, marginTop: 4 }}>
-                    Coil and fabrication are per linear foot, for reference — {panelParts.coilBandIn ? <>coil is the {+panelParts.coilIn.toFixed(3)}" coil at the up-to-{panelParts.coilBandIn}" band of the Coil Width Price Scale.</> : <>coil is the full {+panelParts.coilIn.toFixed(3)}" coil, takeup included.</>}
-                    {" "}Total Price is what the order costs: those rates × the length — or the run minimum ($200 shop-rolled · $600 on site) when they come to less{panelParts.atMin ? ", as this run does" : ""} — plus any premium-color or mileage charge.{brand === "Copper" ? " Copper is fabricated at twice the fabrication rate." : ""}
+                  <div data-testid="panel-price-math" style={{ marginTop: 6, border: `1px dashed ${theme.border}`, borderRadius: 6, padding: "6px 8px" }}>
+                    {panelPriceMath(panelParts, { brand, runLocation }).map((l) => (
+                      <div key={l.label} className="mono" style={{ display: "flex", gap: 8, fontSize: 10.5, lineHeight: 1.6, color: l.label === "Total" ? theme.text : theme.textSecondary, fontWeight: l.label === "Total" ? 700 : 400, borderTop: l.label === "Total" ? `1px solid ${theme.border}` : "none", marginTop: l.label === "Total" ? 3 : 0 }}>
+                        <span style={{ minWidth: 86 }}>{l.label}</span>
+                        <span style={{ flex: 1 }}>{l.math}</span>
+                        <span>{money(l.amount)}</span>
+                      </div>
+                    ))}
+                    <div style={{ fontSize: 9.5, color: theme.textSecondary, marginTop: 3 }}>
+                      Priced per linear foot of the {+panelParts.coilIn.toFixed(3)}" coil fed (takeup included). The run is coil + fabrication, or the minimum ($200 shop-rolled, $600 on site) when that is more.
+                    </div>
                   </div>
                 )}
 
