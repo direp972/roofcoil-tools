@@ -208,11 +208,12 @@ export const PROFILE_INFO = {
   'FF100 – 1" Snap-Lock, Slotted Flange': { code: "FF100", family: "flange", takeup: 4, desc: "Fastened through a flange on the male leg, then the female leg snaps over it — no clips." },
   'FF150 – 1.5" Snap-Lock, Slotted Flange': { code: "FF150", family: "flange", takeup: 5.3125, delisted: true, desc: "Taller fastener-flange snap-lock, no clips required." },
   'SSQ275 – 2" Snap-Lock / Mech. Seam': { code: "SSQ275", family: "newlock", takeup: 6.5, delisted: true, desc: "Proprietary two-in-one profile — install as snap-lock, seam it later if the job calls for it." },
-  // Adax Metals (Weatherford, TX) — licensed Ultra Seam profiles they roll in-house. All
-  // delisted (2026-11-17): the shop offers New Tech Machinery profiles only. They stay here so
-  // an old order or estimate that names one still resolves. vendor: "adax" routes them into
-  // the Adax section of the panel catalog, which hides while it has none listed; entries
-  // without a vendor field are the New Tech Machinery profiles above. Ultra Seam publishes NO
+  // Adax Metals (Weatherford, TX) — licensed Ultra Seam profiles they roll in-house. Off on
+  // the platform (2026-11-17), so the main tool and every other fabricator show New Tech
+  // Machinery profiles only; Adax Metals' own catalog selection switches them on for Adax
+  // (profiles: { name: true }, see resolveCatalog). vendor: "adax" routes them into the Adax
+  // section of the panel catalog, which hides while it has none on; entries without a
+  // vendor field are the New Tech Machinery profiles above. Ultra Seam publishes NO
   // coil-width/material-usage specs (checked every data sheet 2026-08-19), so these
   // takeups are estimates borrowed from the equivalent NTM seam geometry above —
   // replace with Adax's real numbers when the shop gets them.
@@ -465,8 +466,15 @@ export function resolveCatalog(platform, selection) {
   const gauges = { ...base.gauges };
   for (const b of [...customBrands, ...retiredBrands]) if (b.base === "copper") gauges[b.name] = base.gauges.Copper;
 
+  // A shop's profile switches: false takes a listed platform profile out of its offer; true
+  // puts in one the platform keeps off for everyone else, for the shop that rolls it (Adax
+  // Metals and its Ultra Seam US- profiles, which no other fabricator shows).
   const profiles = {};
-  for (const [name, q] of Object.entries(base.profiles)) profiles[name] = !q.delisted && off(profilesOff, name) ? { ...q, delisted: true, switchedOff: true } : q;
+  for (const [name, q] of Object.entries(base.profiles)) {
+    if (!q.delisted && off(profilesOff, name)) profiles[name] = { ...q, delisted: true, switchedOff: true };
+    else if (q.delisted && profilesOff[name] === true) profiles[name] = { ...q, delisted: false, switchedOn: true };
+    else profiles[name] = q;
+  }
   const profileFields = (q) => ({ code: String(q.code || "").trim(), family: q.family || "mech", takeup: Number(q.takeup) || 0, vendor: "shop", desc: q.desc || "" });
   for (const q of customProfiles) profiles[q.name] = profileFields(q);
   for (const q of retiredProfiles) profiles[q.name] = { ...profileFields(q), delisted: true, retired: true };

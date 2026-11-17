@@ -452,6 +452,18 @@ assert.deepEqual(listedProfiles(DEFAULT_CATALOG).map((p) => DEFAULT_CATALOG.prof
   ["FF100", "FWQ100", "SS100", "SS150", "SS450", "SSQ200", "SSQ675"], "the listed profiles are the seven New Tech ones");
 assert.ok(Object.entries(DEFAULT_CATALOG.profiles).filter(([, v]) => v.vendor === "adax").every(([, v]) => v.delisted), "every Adax profile is delisted");
 assert.equal(DEFAULT_CATALOG.profiles['US-100NS – 1" Nail Strip'].takeup, 3, "but an Adax profile still resolves for old orders");
+// The Adax US- profiles are off on the platform, so the main tool and every other fabricator
+// show New Tech profiles only; Adax Metals' selection switches them on for Adax alone.
+const ADAX_ON = ['US-100NS – 1" Nail Strip', 'US-150 – 1.5" Mechanical Seam', 'US-150LS – 1.5" Snap-Lock', 'US-175LS – 1.75" Snap-Lock', 'US-200 – 2" Mechanical Seam', 'US-100FP – 1" Flush Wall / Soffit'];
+const adaxShop = resolveCatalog(DEFAULT_CATALOG, { profiles: Object.fromEntries(ADAX_ON.map((n) => [n, true])) });
+assert.deepEqual(listedProfiles(adaxShop).filter((p) => p.startsWith("US-")).sort(), [...ADAX_ON].sort(), "Adax Metals' selection switches its six US- profiles on");
+assert.equal(listedProfiles(adaxShop).length, 13, "next to the seven New Tech ones");
+assert.ok(adaxShop.profiles['US-100NS – 1" Nail Strip'].switchedOn && !adaxShop.profiles['US-100CS – 1" Snap-On Cap Seam'].switchedOn, "only the ones it names");
+const usPanel = { type: "panel", brand: "Fortified Metal", colorName: "Regal White", paintId: "pvdf", gaugeId: "24ga", profile: 'US-150 – 1.5" Mechanical Seam' };
+assert.ok(isOffered(adaxShop, usPanel).ok, "Adax Metals takes a US-150 order");
+assert.ok(!isOffered(DEFAULT_CATALOG, usPanel).ok && !isOffered(resolveCatalog(DEFAULT_CATALOG, null), usPanel).ok, "the main tool and a shop without the switch refuse it");
+assert.ok(!listedProfiles(resolveCatalog(DEFAULT_CATALOG, { profiles: { 'SS450 – 1.5" Snap-Lock': true } })).includes('US-150 – 1.5" Mechanical Seam'), "true on a listed profile changes nothing else");
+assert.ok(!listedProfiles(resolveCatalog(DEFAULT_CATALOG, { profiles: { "Nope – 9\" Seam": true } })).includes("Nope – 9\" Seam"), "true on an unknown name adds nothing");
 const shop = resolveCatalog(DEFAULT_CATALOG, selection);
 assert.deepEqual(resolveCatalog(DEFAULT_CATALOG, null), DEFAULT_CATALOG, "no selection is the platform catalog");
 assert.ok(!shop.brands.includes("Berridge") && shop.brands.includes("B Select") && shop.brands.includes("B Kynar Only"), "brands follow the selection");

@@ -3448,6 +3448,9 @@ function CatalogSection({ platform, selection, onChange, theme, shopName }) {
   const input = { width: "100%", padding: 8, border: `1px solid ${theme.border}`, borderRadius: 6, fontSize: 12, background: theme.inputBg, color: theme.text, boxSizing: "border-box", marginTop: 4 };
   const btn = (primary) => ({ padding: "7px 12px", borderRadius: 6, border: primary ? "none" : `1px solid ${theme.border}`, background: primary ? INK : "transparent", color: primary ? "#fff" : theme.text, fontSize: 11.5, fontWeight: 700, cursor: "pointer" });
   const platformListed = Object.keys(platform.profiles).filter((k) => !platform.profiles[k].delisted);
+  // profiles the platform keeps off for everyone else, that this shop has switched on for itself
+  const switchedOn = Object.keys(sel.profiles || {}).filter((k) => sel.profiles[k] === true && platform.profiles[k]?.delisted);
+  const flipOn = (key, on) => { const m = { ...(sel.profiles || {}) }; if (on) m[key] = true; else delete m[key]; onChange({ ...sel, profiles: m }); };
   return (
     <div style={{ marginBottom: 18 }}>
       <div className="disp" style={{ fontSize: 12, color: SAFETY, marginBottom: 6 }}>Catalog</div>
@@ -3525,6 +3528,7 @@ function CatalogSection({ platform, selection, onChange, theme, shopName }) {
       <div style={{ ...small, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", margin: "12px 0 4px" }}>Panel profiles</div>
       <div style={{ ...row, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 4 }}>
         {platformListed.map((q) => <label key={q} style={{ ...label, fontSize: 11.5, fontWeight: 500 }}><input type="checkbox" checked={isOn(sel.profiles, q)} onChange={(e) => flip("profiles", q, e.target.checked)} /> <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{q}</span></label>)}
+        {switchedOn.map((q) => <label key={q} title="Off for every other fabricator; on for this shop" style={{ ...label, fontSize: 11.5, fontWeight: 500 }}><input type="checkbox" checked onChange={(e) => flipOn(q, e.target.checked)} /> <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{q} <span style={{ ...small, fontWeight: 400 }}>(this shop only)</span></span></label>)}
       </div>
       {customProfiles.map((q) => (
         <div key={q.name} style={{ ...row, display: "flex", alignItems: "center", gap: 8 }}>
