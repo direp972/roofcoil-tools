@@ -330,7 +330,8 @@ function distanceMiles(a, b) {
 
 
 /* --------------------------------- Residential Standing Seam --------------------------------- */
-// The standard trim set for a 24 ga standing seam roof, drawn to the roof's pitch and the
+// The standard trim set for a standing seam roof, whatever its panels' gauge (the trims
+// themselves go as 24 ga, copper as picked: see kitGaugeId), drawn to the roof's pitch and the
 // panel's seam height. Every entry is a real profile the drawing tool can open and edit:
 // points in inches, y grows downward, drawn with the leg that sits on the panel (or the
 // wall) horizontal, the way trim details appear on a shop drawing. paintSide is the
@@ -557,7 +558,7 @@ const TRIM_BOX_PLACED = new Set(TRIM_BOX_GROUPS.flatMap((g) => g.ids));
 // The two boxes: what each is called, which ?view= opens it from the site, and its colours.
 const BOX_KINDS = {
   res: { label: "Residential Standing Seam", view: "box", accent: "#A0602E", accentLight: "#B8703A", icon: Package,
-    blurb: "The standard trims for a 24 ga standing seam roof, drawn to your pitch — add them all at once" },
+    blurb: "The standard trims for a standing seam roof, drawn to your pitch — add them all at once" },
   com: { label: "Commercial Kit", view: "commercial", accent: "#4F5D6B", accentLight: "#61707F", icon: Building2,
     blurb: "Coping, edge metal, counter flashing, box gutters and downspouts for a low-slope roof" },
 };
@@ -4467,7 +4468,7 @@ export default function ShopOrderApp() {
   const [editingId, setEditingId] = useState(null); // the part from the list that is back on the canvas to be changed
   const editSnapshot = useRef(null); // what the canvas and form held before a part was tapped — put back when the edit ends
   const canvasTopRef = useRef(null);
-  // The kits — Residential (the 24 ga trim set, drawn to pitch) and Commercial in a
+  // The kits — Residential (the standing-seam trim set, drawn to pitch) and Commercial in a
   // Box (coping, cleats, counter flashing, gutters and downspouts, drawn to their sizes)
   const [roofBoxOpen, setRoofBoxOpen] = useState(false);
   const [roofBoxKind, setRoofBoxKind] = useState("res"); // which kit is up — "res" or "com" (BOX_KINDS)
@@ -8027,7 +8028,7 @@ export default function ShopOrderApp() {
                             <div style={{ fontSize: 12, color: theme.textSecondary, marginTop: 3, lineHeight: 1.45 }}>
                               {roofBoxKind === "com"
                                 ? "The sheet metal for a low-slope roof in one place. Set the wall width, the fascia height and the gutter and downspout sizes, tick what the job needs, and add them all to the order — or open any one on the canvas to tweak a leg. Scuppers and collector boxes are built to size in the 3D tool; their rows take you there."
-                                : "The standard trims for a 24 ga standing seam roof in one place. Set the pitch and seam height, tick what the job needs, and add them all to the order — or open any one on the canvas to tweak a leg."}
+                                : "The standard trims for a standing seam roof in one place. Set the pitch and seam height, tick what the job needs, and add them all to the order — or open any one on the canvas to tweak a leg."}
                             </div>
                           </div>
                           <button type="button" onClick={closeKit} aria-label="Close" style={{ border: "none", background: "none", color: theme.textSecondary, fontSize: 20, cursor: "pointer", lineHeight: 1 }}>✕</button>
