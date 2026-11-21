@@ -3,7 +3,7 @@
 // Run: node scripts/pricing-check.mjs   (exits non-zero on the first failing check)
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { computePrice, panelPriceMath, coilBandForWidth, coilBandRangeText, getSellRates, sellTierFor, sellRate, panelPriceParts, panelCoilWidthIn, panelCoilFromStoredPan, panelOrderProblem, panelOrderFields, panelPanForCoil, panelCoilForPan, panelRunText, orderAmountText, panelReorderNote, paintFor, feetInches, PANEL_MAX_COIL_IN, DEFAULT_PRICE_LIST, DEFAULT_COIL_WIDTH_SCALE } from "../supabase/functions/_shared/pricing.mjs";
+import { computePrice, metalPriceParts, orderLineProblem, panelPriceMath, coilBandForWidth, coilBandRangeText, getSellRates, sellTierFor, sellRate, panelPriceParts, panelCoilWidthIn, panelCoilFromStoredPan, panelOrderProblem, panelOrderFields, panelPanForCoil, panelCoilForPan, panelRunText, orderAmountText, panelReorderNote, paintFor, feetInches, PANEL_MAX_COIL_IN, DEFAULT_PRICE_LIST, DEFAULT_COIL_WIDTH_SCALE } from "../supabase/functions/_shared/pricing.mjs";
 import { DEFAULT_CATALOG, findGauge, findColor, findPaint, listedProfiles, clipSpecForProfile, catalogToRows, catalogFromRows, isUsableCatalog, resolveCatalog, isOffered, getColorsForBrand, readTakeup } from "../supabase/functions/_shared/catalog.mjs";
 import "../public/catalog-colors.js"; // the public pages' color index (globalThis.rcCatalogColorsFromRows)
 
@@ -27,12 +27,13 @@ assert.equal(sellRate(partial, "tier1"), 3);
 assert.equal(sellRate(partial, "tier2"), undefined);
 assert.equal(sellRate(partial, "greenleaf"), undefined);
 
-// Trim: 4 pieces × 10 ft of 24 ga SMP in a standard color = 40 LF at the tier's trim rate,
-// one bend at $2 a piece, plus the $10 floor add. Seed rates: tier1 3.00, tier2 3.35, greenleaf 2.90.
+// Trim: 4 pieces × 10 ft of 24 ga SMP in a standard color = 40 LF at the tier's trim rate and
+// one bend at $2 a piece — and nothing else: no order charge (it was $10). Seed rates: tier1
+// 3.00, tier2 3.35, greenleaf 2.90.
 const trim = { type: "trim", points: [[0, 0], [4, 0], [4, 2]], quantity: 4, lengthPerPiece: 10, gaugeId: "24ga", paintId: "smp", brand: "Fortified Metal", colorName: "Regal White" };
-close(price(trim, "tier1"), 40 * 3.00 + 2 * 4 + 10, "trim tier1");
-close(price(trim, "tier2"), 40 * 3.35 + 2 * 4 + 10, "trim tier2");
-close(price(trim, "greenleaf"), 40 * 2.90 + 2 * 4 + 10, "trim greenleaf");
+close(price(trim, "tier1"), 40 * 3.00 + 2 * 4, "trim tier1: $128.00");
+close(price(trim, "tier2"), 40 * 3.35 + 2 * 4, "trim tier2: $142.00");
+close(price(trim, "greenleaf"), 40 * 2.90 + 2 * 4, "trim greenleaf: $124.00");
 close(price(trim, "nonsense"), price(trim, "tier2"), "unknown tier prices as retail");
 
 // Panel: coil and fabrication rates both move with the tier.
@@ -61,6 +62,167 @@ assert.ok(price(box, "greenleaf") < price(box, "tier1") && price(box, "tier1") <
 const feeOnly = DEFAULT_PRICE_LIST.filter((p) => p.category === "3D Parts");
 close(computePrice(box, feeOnly, [], "tier2") - computePrice(box, feeOnly, [], "tier1"), 10, "collector box fee gap tier2 - tier1");
 close(computePrice(box, feeOnly, [], "tier1") - computePrice(box, feeOnly, [], "greenleaf"), 3, "collector box fee gap tier1 - greenleaf");
+
+// ---------------------------------------------------------------------------------------
+// No order charges. Trim, flat sheet and coil, and 3D parts are priced at their material and
+// work alone — the Price List rows, bends, processing and forming fees, paint, and ×1.12 for a
+// premium color — with no order charge on top and no minimum under them (these carried $10,
+// $15 and $20 until the shop dropped them). Every figure below is worked out from the seed
+// Price List by hand, at every tier, in a standard and a premium color.
+const TIERS3 = ["tier1", "tier2", "greenleaf"];
+const SEED = {
+  trimFt: { tier1: 3.00, tier2: 3.35, greenleaf: 2.90 },                    // 24 Gauge Trim, $/LF
+  coilSqft: { tier1: 4.10 * 0.75, tier2: 4.55 * 0.75, greenleaf: 3.95 * 0.75 }, // 24 Gauge Coil row ($/LF of 16") per sq ft
+  fee: { collector: { tier1: 45, tier2: 55, greenleaf: 42 }, scupper: { tier1: 40, tier2: 50, greenleaf: 37 }, chimney: { tier1: 50, tier2: 62, greenleaf: 47 } },
+};
+const std = { brand: "Fortified Metal", colorName: "Regal White" }, prem = { brand: "Fortified Metal", colorName: "Burnished Slate" };
+assert.equal(findColor(DEFAULT_CATALOG, prem.colorName, prem.brand, "smp")?.premium, true, "Burnished Slate is a premium color");
+assert.ok(!findColor(DEFAULT_CATALOG, std.colorName, std.brand, "smp")?.premium, "Regal White is not");
+for (const tier of TIERS3) for (const [color, mult] of [[std, 1], [prem, 1.12]]) {
+  const at = (o) => price({ gaugeId: "24ga", paintId: "smp", ...color, ...o }, tier);
+  const what = `${tier}${mult === 1 ? "" : ", premium color"}`;
+  // Trim: LF × rate × paint + $2 a bend a piece.
+  close(at({ type: "trim", points: [[0, 0], [4, 0], [4, 2]], quantity: 4, lengthPerPiece: 10 }), (40 * SEED.trimFt[tier] + 1 * 2 * 4) * mult, `trim 4 × 10 ft, one bend, SMP (${what})`);
+  close(at({ type: "trim", points: [[0, 0], [4, 0], [4, 2], [6, 2]], quantity: 2, lengthPerPiece: 10.5, paintId: "pvdf" }), (21 * SEED.trimFt[tier] * 1.15 + 2 * 2 * 2) * mult, `trim 2 × 10.5 ft, two bends, PVDF (${what})`);
+  close(at({ type: "trim", points: [[0, 0], [4, 0], [4, 2]], quantity: 1, lengthPerPiece: 2 }), (2 * SEED.trimFt[tier] + 2) * mult, `a short trim piece is its LF and bend, no $10 (${what})`);
+  // Flat sheet: sq ft × $1.40 × paint + $7.50 processing, a sheet. The seed prices it the same at every tier.
+  close(at({ type: "metal", flatWidth: 48, flatLength: 120, quantity: 2, coilWidth: 0, coilLength: 0 }), (40 * 1.40 + 7.50) * 2 * mult, `2 flat sheets 4' × 10', SMP: $127.00 (${what})`);
+  close(at({ type: "metal", flatWidth: 48, flatLength: 120, quantity: 1, coilWidth: 0, coilLength: 0, paintId: "pvdf" }), (40 * 1.40 * 1.15 + 7.50) * mult, `1 flat sheet, PVDF (${what})`);
+  close(at({ type: "metal", flatWidth: 12, flatLength: 12, quantity: 1, coilWidth: 0, coilLength: 0 }), (1 * 1.40 + 7.50) * mult, `a 1' × 1' sheet is $8.90, no $15 (${what})`);
+  // Coil: the Coil Width Price Scale band per linear foot (PVDF; SMP at the SMP/PVDF ratio). No tiers on the scale.
+  close(at({ type: "metal", flatWidth: 0, flatLength: 0, quantity: 0, coilWidth: 21, coilLength: 1200, paintId: "pvdf" }), 3.03 * 100 * mult, `100 ft of 21" PVDF coil: $303.00 (${what})`);
+  close(at({ type: "metal", flatWidth: 0, flatLength: 0, quantity: 0, coilWidth: 16, coilLength: 1200 }), 2.56 / 1.15 * 100 * mult, `100 ft of 16" SMP coil (${what})`);
+  close(at({ type: "metal", flatWidth: 0, flatLength: 0, quantity: 0, coilWidth: 24, coilLength: 24, paintId: "pvdf" }), 3.31 * 2 * mult, `2 ft of 24" coil is $6.62, no $15 (${what})`);
+  close(at({ type: "metal", flatWidth: 48, flatLength: 120, quantity: 2, coilWidth: 21, coilLength: 1200, paintId: "pvdf" }), ((40 * 1.40 * 1.15 + 7.50) * 2 + 3.03 * 100) * mult, `sheets and coil on one order: the two added, nothing on top (${what})`);
+  // With no Coil Width Price Scale, coil is the Price List's coil row per sq ft — which follows the tier.
+  close(computePrice({ type: "metal", flatWidth: 0, flatLength: 0, quantity: 0, coilWidth: 21, coilLength: 1200, gaugeId: "24ga", paintId: "pvdf", ...color }, DEFAULT_PRICE_LIST, [], tier),
+    (21 * 1200 / 144) * SEED.coilSqft[tier] * 1.15 * mult, `100 ft of 21" coil with no scale: the tier's coil row (${what})`);
+  // 3D parts: the blank's sq ft × the tier's coil $/sq ft × paint, plus the forming fee, a piece.
+  const part = (o, sqin, fee) => close(at({ type: "part3d", ...o }), (sqin / 144 * SEED.coilSqft[tier] + fee) * (o.quantity) * mult, `${o.partType} (${what})`);
+  part({ partType: "collector", partW: 12, partD: 8, partH: 10, quantity: 1 }, 2 * (12 + 8) * 10 + 12 * 8, SEED.fee.collector[tier]);
+  part({ partType: "collector", partW: 6, partD: 4, partH: 4, quantity: 3, paintId: "smp" }, 2 * (6 + 4) * 4 + 6 * 4, SEED.fee.collector[tier]);
+  part({ partType: "chimney", partW: 24, partD: 24, partCapH: 6, quantity: 1 }, 2 * (24 + 24) * (3 + 3 + 0.5) + 4 * 6 * 6 + 2 * (28 + 28) * Math.hypot(14, 6) * 1.1, SEED.fee.chimney[tier]);
+  const sleeve = 2 * (12 + 4) * (8 + 2); // a 12" × 4" sleeve 8" through the wall with a 2" spout, cut and welded at the roof
+  part({ partType: "scupper", partW: 12, partD: 8, partH: 4, scupProj: 2, scupRoofMode: "field", scupOutlet: "faceplate", scupPlateW: 16, scupPlateH: 8, quantity: 1 }, sleeve + (16 * 8 - 12 * 4), SEED.fee.scupper[tier]);
+  part({ partType: "scupper", partW: 12, partD: 8, partH: 4, scupProj: 2, scupRoofMode: "field", scupOutlet: "none", quantity: 2 }, sleeve, SEED.fee.scupper[tier]);
+  // a head under it: bottom, front, sides and the back the sleeve goes through (4 + 2 + 1.5 + 12 high), and 10 ft of 4×5 downspout; two fees
+  part({ partType: "scupper", partW: 12, partD: 8, partH: 4, scupProj: 2, scupRoofMode: "field", scupOutlet: "collector", scupBoxW: 16, scupBoxD: 8, scupBoxH: 12, scupDsSize: "4×5", scupDsLen: 10, quantity: 2 },
+    sleeve + 16 * 8 + 16 * 12 + 2 * 8 * 12 + (16 * 19.5 - 12 * 4) + 2 * (4 + 5) * 10 * 12, SEED.fee.scupper[tier] + SEED.fee.collector[tier]);
+  // a scupper whose roof plate the shop makes, with a 2" leg turned out onto the deck
+  part({ partType: "scupper", partW: 12, partD: 8, partH: 4, scupProj: 2, scupRoofMode: "shop", scupFlange: 6, scupDeckLeg: 2, scupOutlet: "none", quantity: 1 }, sleeve + ((12 + 12) * (4 + 12) - 12 * 4) + (12 + 12) * 2, SEED.fee.scupper[tier]);
+}
+// The metal form's two boxes — $/Sheet and $/Linear Ft — are metalPriceParts' perSheet and perFt,
+// each with the premium-color factor in it, so the sheets and the coil add up to the total that
+// is charged in every color (the coil box used to leave out the 12% and the sheet box put it on
+// the material only, so a premium color's two lines fell short of the total).
+for (const tier of TIERS3) for (const [color, mult] of [[std, 1], [prem, 1.12]]) for (const scale of [DEFAULT_COIL_WIDTH_SCALE, []]) {
+  const o = { type: "metal", flatWidth: 48, flatLength: 120, quantity: 4, coilWidth: 21, coilLength: 12000, gaugeId: "24ga", paintId: "pvdf", ...color };
+  const m = metalPriceParts(o, DEFAULT_PRICE_LIST, scale, tier);
+  const what = `${tier}${mult === 1 ? "" : ", premium color"}${scale.length ? "" : ", no coil scale"}`;
+  close(m.total, computePrice(o, DEFAULT_PRICE_LIST, scale, tier), `metal parts total is computePrice (${what})`);
+  close(m.perSheet, (40 * 1.40 * 1.15 + 7.50) * mult, `$/Sheet: 4' × 10' PVDF, processing in, ×1.12 on all of it for a premium color (${what})`);
+  close(m.perFt, (scale.length ? 3.03 : 21 / 12 * SEED.coilSqft[tier] * 1.15) * mult, `$/Linear Ft of 21" coil (${what})`);
+  assert.ok(Math.abs(m.perSheet * 4 + m.perFt * m.coilFeet - m.total) < 1e-9, `the two lines add up to the total (${what})`);
+}
+// Each line is now exactly proportional to its quantity: twice the pieces is twice the price
+// (an order charge on top broke that).
+for (const o of [trim, flat, box, { ...box, partType: "chimney", partW: 24, partD: 24, partCapH: 6 }, { type: "metal", flatWidth: 0, flatLength: 0, quantity: 0, coilWidth: 21, coilLength: 1200, gaugeId: "24ga", paintId: "pvdf", brand: "Fortified Metal", colorName: "Regal White" }]) {
+  const q = o.type === "metal" && !o.flatWidth ? null : o.quantity;
+  if (q != null) close(price({ ...o, quantity: q * 2 }, "tier2"), 2 * price(o, "tier2"), `${o.type}${o.partType ? " " + o.partType : ""}: twice the quantity, twice the price`);
+  else close(price({ ...o, coilLength: o.coilLength * 2 }, "tier2"), 2 * price(o, "tier2"), "coil: twice the feet, twice the price");
+}
+// The reference orders before and after, at tier 2: trim $152.00 → $142.00, two flat sheets
+// $142.00 → $127.00, a 12 × 8 × 10 collector box $86.75 → $66.75.
+assert.equal(Math.round(price(trim, "tier2") * 100) / 100, 142, "reference trim: $142.00 (was $152.00 with the $10 charge)");
+assert.equal(Math.round(price(flat, "tier2") * 100) / 100, 127, "two flat sheets: $127.00 (was $142.00 with the $15 charge)");
+assert.equal(Math.round(price(box, "tier2") * 100) / 100, 66.75, "collector box: $66.75 (was $86.75 with the $20 charge)");
+// No floor is left in the pricing code.
+const pricingSrc = readFileSync(new URL("../supabase/functions/_shared/pricing.mjs", import.meta.url), "utf8");
+assert.ok(!/Math\.max\(\s*(10|15|20)\s*,/.test(pricingSrc) && !/\+\s*(10|15|20)\s*\)\s*;/.test(pricingSrc), "pricing.mjs keeps no $10 / $15 / $20 order charge or floor");
+
+// With no charge, a line with nothing on it prices at $0.00 (it used to be charged the $10 / $15
+// / $20). The app and submit-order refuse it, in words, with orderLineProblem.
+assert.equal(price({ ...trim, quantity: 0 }, "tier2"), 0, "trim with quantity 0 now prices at $0.00");
+assert.equal(price({ ...flat, quantity: 0, coilWidth: 21, coilLength: 0 }, "tier2"), 0, "a metal order with no sheets and no coil prices at $0.00");
+assert.equal(price({ ...box, quantity: 0 }, "tier2"), 0, "a 3D part with quantity 0 prices at $0.00");
+const named = { ...trim, partName: "Eave / Drip Edge" };
+assert.equal(orderLineProblem(named), null, "a good trim line passes");
+assert.equal(orderLineProblem(named, price(named, "tier2")), null, "and its price passes");
+assert.match(orderLineProblem({ ...named, quantity: 0 }), /^"Eave \/ Drip Edge" has no quantity/, "trim quantity 0 is refused, naming the part");
+assert.match(orderLineProblem({ ...named, quantity: "" }), /has no quantity/, "a blank quantity is refused");
+assert.match(orderLineProblem({ ...trim, quantity: 0 }), /^This part has no quantity/, "a part with no name");
+assert.match(orderLineProblem({ ...named, lengthPerPiece: 0 }), /has no length/, "trim with no length is refused");
+assert.match(orderLineProblem({ ...named, lengthPerPiece: "" }), /has no length/, "and a blank length");
+assert.match(orderLineProblem({ ...named, quantity: -2 }), /below zero/, "a quantity below zero is refused");
+assert.match(orderLineProblem({ ...named, lengthPerPiece: "abc" }), /isn't a number/, "a length that isn't a number is refused");
+const sheetsOnly = { ...flat, coilWidth: 21, coilLength: 0 }, coilOnly = { ...flat, quantity: 0, coilWidth: 21, coilLength: 1200 };
+assert.equal(orderLineProblem(sheetsOnly), null, "flat sheets with no coil pass");
+assert.equal(orderLineProblem(coilOnly), null, "coil with no sheets passes");
+assert.equal(orderLineProblem({ ...flat, coilWidth: 21, coilLength: 1200 }), null, "sheets and coil pass");
+assert.match(orderLineProblem({ ...flat, quantity: 0, coilWidth: 21, coilLength: 0 }), /nothing on it/, "no sheets and no coil is refused");
+assert.match(orderLineProblem({ ...flat, quantity: 0, flatWidth: 0, coilWidth: 0, coilLength: 1200 }), /nothing on it/, "no sheet count and coil with no width: nothing on it");
+assert.match(orderLineProblem({ ...flat, flatWidth: 0, coilWidth: 0, coilLength: 1200 }), /^Flat sheets need a width and a length/, "two sheets with no width are refused, not charged their processing fee");
+assert.match(orderLineProblem({ ...coilOnly, quantity: 2, flatLength: "" }), /^Flat sheets need a width and a length/, "and coil with two sheets of no length: the sheets are refused, not priced at $7.50 each");
+assert.match(orderLineProblem({ ...flat, quantity: 1.5 }), /^Put in a whole number of flat sheets/, "a sheet and a half is refused");
+assert.equal(orderLineProblem({ ...coilOnly, quantity: "" }), null, "coil with the sheet Qty left blank passes");
+assert.match(orderLineProblem({ ...coilOnly, quantity: -3 }), /below zero/, "a negative sheet count can't take money off the coil");
+assert.match(orderLineProblem({ ...box, quantity: 0 }), /^Put how many you need in Qty/, "a 3D part with quantity 0 is refused, pointing at the 3D form's own Qty");
+assert.match(orderLineProblem({ ...box, quantity: 0.001 }), /^Qty is a count of whole parts/, "a thousandth of a collector box is refused");
+assert.match(orderLineProblem({ ...named, quantity: 0.5 }), /^"Eave \/ Drip Edge": Qty is a count of whole pieces/, "half a trim piece is refused");
+assert.match(orderLineProblem({ ...named, quantity: 1e-9 }), /whole pieces/, "and a sliver of one");
+assert.equal(orderLineProblem({ ...named, quantity: "3" }), null, "a count sent as text is still a count");
+assert.match(orderLineProblem({ ...named, quantity: [3] }), /isn't a number/, "but a list is not a count");
+assert.match(orderLineProblem({ ...named, lengthPerPiece: true }), /isn't a number/, "nor is true");
+assert.match(orderLineProblem({ ...named, points: [[0, 0]] }), /^"Eave \/ Drip Edge" has no shape — draw at least two points\./, "a trim piece with one point is refused, as the app refuses it");
+assert.match(orderLineProblem({ ...named, points: "xxxxxxxx" }), /has no shape/, "and one whose points aren't a list");
+// A 3D part is refused when a size it is priced from is 0 or missing — it used to go in at its forming fee alone.
+for (const k of ["partW", "partD", "partH"]) {
+  assert.match(orderLineProblem({ ...box, [k]: 0 }), /^Put in the collector box's width, depth and height — each has to be more than 0\./, `a collector box with ${k} 0`);
+  assert.match(orderLineProblem({ ...box, partType: "scupper", [k]: undefined }), /^Put in the scupper's opening width, wall thickness and opening height/, `a scupper with no ${k}`);
+}
+assert.match(orderLineProblem({ ...box, partType: "chimney", partW: 24, partD: "" }), /^Put in the chimney cap's width and depth — each/, "a chimney cap with no depth");
+assert.equal(orderLineProblem({ ...box, partType: "chimney", partW: 24, partD: 24, partH: undefined }), null, "a chimney cap needs no height (its roof is partCapH, which may be 0)");
+assert.equal(orderLineProblem({ ...box, partType: "chimney", partW: 24, partD: 24, partCapH: 0 }), null, "a flat-topped chimney cap passes");
+assert.match(orderLineProblem({ ...box, partW: -12 }), /below zero/, "a 3D part size below zero is refused");
+assert.equal(orderLineProblem({ ...box, partCapH: undefined, scupDsLen: "" }), null, "fields a part doesn't use may be missing or blank");
+assert.equal(orderLineProblem(ffDefaultForLines()), null, "a panel is left to panelOrderProblem");
+assert.equal(orderLineProblem(ffDefaultForLines(), 261.61), null, "and its price passes");
+// A line that still comes to $0.00 — a shop's own trim rate of $0 on a part with no bends — is refused too.
+const freeTrim = DEFAULT_PRICE_LIST.map((p) => (p.name === "24 Gauge Trim (per linear ft)" ? { ...p, tier2: 0 } : p));
+const straight = { ...named, points: [[0, 0], [4, 0]] };
+assert.equal(computePrice(straight, freeTrim, DEFAULT_COIL_WIDTH_SCALE, "tier2"), 0, "a $0 trim rate and no bends: $0.00");
+assert.match(orderLineProblem(straight, computePrice(straight, freeTrim, DEFAULT_COIL_WIDTH_SCALE, "tier2")), /^"Eave \/ Drip Edge" comes to \$0\.00/, "and that line is refused");
+assert.match(orderLineProblem(coilOnly, 0), /^This order comes to \$0\.00/, "a $0.00 price is refused on any line");
+// A price under half a cent shows, and would be stored, as $0.00, so it is refused like $0.00;
+// half a cent and up shows as $0.01 and passes.
+assert.match(orderLineProblem(coilOnly, 0.004999), /comes to \$0\.00/, "a price that rounds to $0.00 is refused");
+assert.match(orderLineProblem(coilOnly, NaN), /comes to \$0\.00/, "and a price that isn't a number");
+assert.equal(orderLineProblem(coilOnly, 0.005), null, "half a cent rounds to $0.01 and passes");
+assert.equal(orderLineProblem(coilOnly, 0.01), null, "a cent passes");
+{
+  const sliver = { ...straight, quantity: 1, lengthPerPiece: 0.001 };
+  assert.equal(orderLineProblem(sliver), null, "a trim piece a thousandth of a foot long has a quantity and a length");
+  assert.match(orderLineProblem(sliver, price(sliver, "tier2")), /^"Eave \/ Drip Edge" comes to \$0\.00/, "but comes to $0.00 and is refused");
+  const speck = { ...coilOnly, coilLength: 0.01 };
+  assert.match(orderLineProblem(speck, price(speck, "tier2")), /comes to \$0\.00/, "coil a hundredth of an inch long is refused");
+}
+function ffDefaultForLines() { return { type: "panel", profile: 'FF100 – 1" Snap-Lock, Slotted Flange', width: 17, coilWidth: 21, height: 853.08, quantity: 1, gaugeId: "24ga", paintId: "pvdf", brand: "Fortified Metal", colorName: "Regal White", runLocation: "Shop" }; }
+// The app refuses before sending, and submit-order refuses on the server, with the same check.
+{
+  const app = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
+  assert.match(app, /const lineProblem = newOrders\.map\(\(o\) => orderLineProblem\(o, o\.price\)\)\.find\(Boolean\);\n\s*if \(lineProblem\) \{ setSubmitting\(false\); setToast\(lineProblem\);[^\n]*return; \}\n\s*const saved = await insertOrders\(newOrders\);/, "App.jsx: trim parts are checked before they are sent");
+  assert.match(app, /const lineProblem = orderLineProblem\(order, order\.price\);\n\s*if \(lineProblem\) \{ setSubmitting\(false\); setToast\(lineProblem\);[^\n]*return; \}\n\s*const saved = await insertOrders\(\[order\]\);/, "App.jsx: every other order is checked before it is sent");
+  // the same reason shows under the Estimated total before Send is pressed
+  assert.match(app, /const estimateProblem = \(\(\) => \{[\s\S]{0,400}?orderLineProblem\(draft, estimate\)[\s\S]{0,500}?orderLineProblem\(\{ type: "trim", partName: it\.name,[^\n]*it\.price\)/, "App.jsx: the estimate shows why Send would be refused");
+  assert.match(app, /data-testid="estimate-problem"/, "App.jsx: under the Estimated total");
+  // A 3D part's count is its own Qty box (partQty), in the estimate, the order and the Job Vault
+  // save alike — not the trim form's hidden quantity, which could be 0 or 4.
+  assert.match(app, /data-testid="part3d-qty"/, "App.jsx: the 3D form has a Qty box");
+  assert.match(app, /\? \{ type: "part3d",[^\n]*quantity: partQty,/, "App.jsx: the 3D estimate uses partQty");
+  assert.equal((app.match(/quantity: isPart3d \? partQty : quantity,/g) || []).length, 2, "App.jsx: the 3D order and its Job Vault save use partQty");
+  const fn = readFileSync(new URL("../supabase/functions/submit-order/index.ts", import.meta.url), "utf8");
+  assert.match(fn, /const sizeProblem = orderLineProblem\(order\);\n\s*if \(sizeProblem\) return json\(\{ error: sizeProblem \}, 400\);\n[\s\S]*?price = computePrice\(order,[\s\S]*?const zeroProblem = orderLineProblem\(order, price\);\n\s*if \(zeroProblem\) return json\(\{ error: zeroProblem \}, 400\);\n\s*order\.price = price;/, "submit-order refuses a line with nothing on it, and one priced at $0.00, before it is written");
+}
 
 // An empty price list falls back to the hardcoded gauge rates regardless of tier.
 close(computePrice(trim, [], [], "tier1"), computePrice(trim, [], [], "greenleaf"), "fallback rates ignore tier");
@@ -218,7 +380,7 @@ for (const brand of ["Galvalume", "Bonderized", "G90 Galvanized", "Copper"]) {
 assert.equal(paintFor("Fortified Metal", "pvdf").mult, 1.15, "painted metal keeps its paint");
 near(price({ ...galvFF, paintId: "pvdf" }, "tier2"), price({ ...galvFF, paintId: "smp" }, "tier2"), "Galvalume FF100 is the same price whatever paint id the form holds");
 const galvTrim = { type: "trim", brand: "Galvalume", colorName: "Galvalume (Mill Finish)", gaugeId: "24ga", quantity: 4, lengthPerPiece: 10, points: [{}, {}, {}, {}] };
-near(price({ ...galvTrim, paintId: "pvdf" }, "tier2"), 40 * 2.55 + 2 * 2 * 4 + 10, "Galvalume trim: $2.55/ft, no paint");
+near(price({ ...galvTrim, paintId: "pvdf" }, "tier2"), 40 * 2.55 + 2 * 2 * 4, "Galvalume trim: $2.55/ft, no paint, no order charge");
 near(price({ ...galvTrim, paintId: "pvdf" }, "tier2"), price({ ...galvTrim, paintId: "smp" }, "tier2"), "and so is Galvalume trim");
 
 // Copper is not on the steel bands: its Price List row ($ per sq ft of copper) across the
@@ -550,5 +712,8 @@ assert.equal(idx.hexOf("Bare Copper"), "#B87333", "and the bare metals to their 
 assert.equal(idx.hexOf("Not A Color"), "#8A94A6", "an unknown name is gray");
 assert.equal(idx.hexOf("Koko Crinkle"), "#4A3B31", "a directory palette name the catalog lacks keeps its legacy hex");
 assert.equal(globalThis.rcCatalogColorsFromRows(rows).names.length, new Set(DEFAULT_CATALOG.brands.flatMap((b) => DEFAULT_CATALOG.colors[b].map((c) => c.name))).size, "the names count is every listed painted color once");
+
+// Last, submit-order's own handler, run against a stand-in database: what it saves and what it refuses.
+await import("./submit-order-check.mjs");
 
 console.log("pricing-check: all checks passed");

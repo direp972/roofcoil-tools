@@ -4,7 +4,7 @@ import * as THREE from "three";
 import { storage, shopStorage } from "./lib/storage";
 import { supabase } from "./lib/supabaseClient";
 import { useAuth } from "./lib/AuthProvider";
-import { scupperSpec, scupperBack, MILEAGE_FREE, MILEAGE_RATE, mileageCharge, coilPriceForWidth, getSellRates, computePrice, panelPriceParts, panelCoilWidthIn, panelOrderProblem, panelOrderFields, panelPanForCoil, panelCoilForPan, panelRunText, orderAmountText, panelReorderNote, paintFor, panelPriceMath, coilBandForWidth, coilBandRangeText, sellRate, sellTierFor, DEFAULT_PRICE_LIST, DEFAULT_COIL_WIDTH_SCALE } from "../supabase/functions/_shared/pricing.mjs";
+import { scupperSpec, scupperBack, MILEAGE_FREE, MILEAGE_RATE, mileageCharge, computePrice, metalPriceParts, orderLineProblem, panelPriceParts, panelCoilWidthIn, panelOrderProblem, panelOrderFields, panelPanForCoil, panelCoilForPan, panelRunText, orderAmountText, panelReorderNote, panelPriceMath, coilBandForWidth, coilBandRangeText, sellTierFor, DEFAULT_PRICE_LIST, DEFAULT_COIL_WIDTH_SCALE } from "../supabase/functions/_shared/pricing.mjs";
 import { DEFAULT_CATALOG, listedProfiles, resolveCatalog, readTakeup, getColorsForBrand as catalogColorsForBrand, findColor as catalogFindColor, findGauge as catalogFindGauge, findPaint as catalogFindPaint } from "../supabase/functions/_shared/catalog.mjs";
 import { loadPlatformCatalog, loadPlatformCatalogRows, invalidatePlatformCatalog, addCatalogItem, setCatalogItemDelisted, setCatalogItemData, loadShopCatalogSelection } from "./lib/catalog";
 
@@ -4216,7 +4216,16 @@ export default function ShopOrderApp() {
   const [materialCategory, setMaterialCategory] = useState("painted"); // "painted" | "unpainted"
   const [orders, setOrders] = useState([]);
   const [loaded, setLoaded] = useState(false);
-  const [toast, setToast] = useState("");
+  // One toast at a time, with one clock. A new toast stops the clock of the one before it, and
+  // clearToastIn starts the clock for the toast now showing, so an earlier toast's timer can't
+  // wipe a later one early (a refusal sent a second after "added to the order" stays its time).
+  const [toast, setToastText] = useState("");
+  const toastTimer = useRef(null);
+  const setToast = useCallback((msg) => { clearTimeout(toastTimer.current); toastTimer.current = null; setToastText(msg); }, []);
+  const clearToastIn = useCallback((ms) => {
+    clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => { toastTimer.current = null; setToastText(""); }, ms);
+  }, []);
   const [darkMode, setDarkMode] = useState(false);
   const [priceList, setPriceList] = useState([]);
   const [priceListLoaded, setPriceListLoaded] = useState(false);
@@ -4227,7 +4236,7 @@ export default function ShopOrderApp() {
   useEffect(() => {
     if (!canManageShop) setPriceListTier(sellTier);
   }, [canManageShop, sellTier]);
-  const flash = (msg, ms = 3500) => { setToast(msg); setTimeout(() => setToast(""), ms); };
+  const flash = (msg, ms = 3500) => { setToast(msg); clearToastIn(ms); };
 
   // What Shop Settings and the setup checklist need about the selected shop
   // (shop_admin_info): its people and platform staff only; null for anyone else.
@@ -4434,7 +4443,10 @@ export default function ShopOrderApp() {
   const [brand, setBrand] = useState(activeCatalog.brands[0]);
   const [colorName, setColorName] = useState(activeCatalog.colors[activeCatalog.brands[0]]?.[0]?.name || "");
   const [colorSearch, setColorSearch] = useState("");
-  const [quantity, setQuantity] = useState(4);
+  const [quantity, setQuantity] = useState(4); // the trim form's pieces and the flat sheet form's sheet count
+  // How many of the 3D part: its own Qty box on the 3D form, starting at 1. It used to borrow the
+  // trim form's hidden quantity (4 on a fresh form, 0 if the sheet Qty had been set to 0).
+  const [partQty, setPartQty] = useState(1);
   const [sheetWidth, setSheetWidth] = useState(48);
   const [lengthPerPiece, setLengthPerPiece] = useState(10);
   const [customerName, setCustomerName] = useState("");
@@ -4776,7 +4788,7 @@ export default function ShopOrderApp() {
         shopPicked.current = true;
         setShopId(best.shop.id);
         setToast(`Pricing from ${best.shop.name}, the shop nearest ${zip} (about ${Math.round(best.miles)} mi). Change it under "Send this order to".`);
-        setTimeout(() => setToast(""), 7000);
+        clearToastIn(7000);
       } catch (e) { /* lookup down — the default shop stays */ }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -4807,7 +4819,7 @@ export default function ShopOrderApp() {
       const failed = new Set(newOrders.map((o) => o.id));
       setOrders((prev) => prev.filter((o) => !failed.has(o.id))); // undo the optimistic add
       setToast(`⚠️ ${typeof reply?.error === "string" ? reply.error : "Order didn't save — check your connection and try again."}`);
-      setTimeout(() => setToast(""), 4000);
+      clearToastIn(4000);
       return false;
     }
     // the price and tier on the row are the server's, so that is what the tabs show
@@ -5103,11 +5115,11 @@ export default function ShopOrderApp() {
     const email = addCustomerEmail.trim();
     if (!email) return;
     const { data, error } = await supabase.rpc("add_shop_customer", { p_shop: shopId, p_email: email });
-    if (error) { setToast("Couldn't add that account — try again."); setTimeout(() => setToast(""), 3500); console.error(error); return; }
-    if (data === "no-account") { setToast("No confirmed RoofCoil account has that email yet."); setTimeout(() => setToast(""), 4000); return; }
+    if (error) { setToast("Couldn't add that account — try again."); clearToastIn(3500); console.error(error); return; }
+    if (data === "no-account") { setToast("No confirmed RoofCoil account has that email yet."); clearToastIn(4000); return; }
     setAddCustomerEmail("");
     setToast(data === "already" ? "That account is already on the list." : "Added — set their tier below.");
-    setTimeout(() => setToast(""), 3500);
+    clearToastIn(3500);
     loadShopCustomers();
   };
 
@@ -5128,7 +5140,7 @@ export default function ShopOrderApp() {
   // List backend, costs, tiers, board and Shop Floor), or stop it being one. RLS also
   // blocks removing yourself.
   const toggleAdmin = async (customerId) => {
-    if (customerId === user?.id) { setToast("That's you — you can't remove your own admin access."); setTimeout(() => setToast(""), 3500); return; }
+    if (customerId === user?.id) { setToast("That's you — you can't remove your own admin access."); clearToastIn(3500); return; }
     const isMember = memberIds.includes(customerId);
     setMemberIds((prev) => (isMember ? prev.filter((id) => id !== customerId) : [...prev, customerId]));
     const { error } = isMember
@@ -5137,7 +5149,7 @@ export default function ShopOrderApp() {
     if (error) {
       setMemberIds((prev) => (isMember ? [...prev, customerId] : prev.filter((id) => id !== customerId)));
       setToast("Couldn't change admin access — try again.");
-      setTimeout(() => setToast(""), 3500);
+      clearToastIn(3500);
       console.error(error);
     }
   };
@@ -5145,7 +5157,7 @@ export default function ShopOrderApp() {
   // Platform staff only: grant or revoke platform admin (public.staff), which runs every
   // shop, the directory and the site's leads. RLS also blocks removing yourself.
   const togglePlatformAdmin = async (customerId) => {
-    if (customerId === user?.id) { setToast("That's you — you can't remove your own admin access."); setTimeout(() => setToast(""), 3500); return; }
+    if (customerId === user?.id) { setToast("That's you — you can't remove your own admin access."); clearToastIn(3500); return; }
     const isAdmin = staffIds.includes(customerId);
     setStaffIds((prev) => (isAdmin ? prev.filter((id) => id !== customerId) : [...prev, customerId]));
     const { error } = isAdmin
@@ -5154,7 +5166,7 @@ export default function ShopOrderApp() {
     if (error) {
       setStaffIds((prev) => (isAdmin ? [...prev, customerId] : prev.filter((id) => id !== customerId)));
       setToast("Couldn't change admin access — try again.");
-      setTimeout(() => setToast(""), 3500);
+      clearToastIn(3500);
       console.error(error);
     }
   };
@@ -5348,7 +5360,9 @@ export default function ShopOrderApp() {
       let next = DEFAULT_COIL_WIDTH_SCALE;
       try {
         const res = await shopStorage.get(shopId, "coil-width-scale");
-        if (res?.value) next = JSON.parse(res.value);
+        const saved = res?.value ? JSON.parse(res.value) : null;
+        // a scale saved empty counts as unsaved, as submit-order reads it (and the price list here)
+        if (Array.isArray(saved) && saved.length) next = saved;
       } catch (e) { /* fall back to the seed scale */ }
       if (!stale) { setCoilWidthScale(next); setCoilWidthScaleLoaded(true); }
     })();
@@ -5426,7 +5440,7 @@ export default function ShopOrderApp() {
     setIdeaText("");
     setShowIdeaBox(false);
     setToast(ideaType === "bug" ? "Thanks — bug reported to the shop." : "Thanks — idea submitted!");
-    setTimeout(() => setToast(""), 3000);
+    clearToastIn(3000);
   };
   const deleteIdea = async (id) => {
     const next = ideas.filter((i) => i.id !== id);
@@ -5513,13 +5527,13 @@ export default function ShopOrderApp() {
         setBoxReturn((r) => (r === "edit" ? r : null)); // a scanned shape is not the box piece
         setViewResetKey((k) => k + 1);
         setToast("Sketch scanned — check the shape and adjust any points/lengths before using it.");
-        setTimeout(() => setToast(""), 5000);
+        clearToastIn(5000);
       } catch (err) {
         console.error("scanSketchToPoints error", err);
         setToast(err?.userFacing ? err.message
           : err instanceof TypeError ? "Couldn't reach the sketch reader — check your connection and try again."
           : "Couldn't read that sketch — try a clearer photo, or draw it by hand instead.");
-        setTimeout(() => setToast(""), 4000);
+        clearToastIn(4000);
       } finally {
         setScanningSketch(false);
       }
@@ -5547,20 +5561,6 @@ export default function ShopOrderApp() {
 
   const colorObj = findColor(colorName, brand, paintId);
   const activeGauge = findGauge(gaugeId, brand);
-  const activePaint = paintFor(brand, paintId, activeCatalog);
-  const activePremiumMult = colorObj?.premium ? 1.12 : 1;
-  const activeRates = getSellRates(gaugeId, brand, priceList, profile, sellTier);
-  const ratePerSqft = activeRates.coilSqft * activePaint.mult * activePremiumMult;
-  const activeFlatMaterialItem = priceList?.find((p) => p.name.toLowerCase().includes("flat sheet material") && sellRate(p, sellTier) !== undefined);
-  const activeFlatProcessingItem = priceList?.find((p) => p.name.toLowerCase().includes("flat sheet processing") && sellRate(p, sellTier) !== undefined);
-  const activeFlatMaterialRate = activeFlatMaterialItem ? sellRate(activeFlatMaterialItem, sellTier) : activeRates.coilSqft;
-  const activeFlatProcessingFee = activeFlatProcessingItem ? sellRate(activeFlatProcessingItem, sellTier) : 0;
-  const flatSheetPrice = (((+flatWidth || 0) * (+flatLength || 0)) / 144) * activeFlatMaterialRate * activePaint.mult * activePremiumMult + activeFlatProcessingFee;
-  const interpolatedCoilPerFt = coilPriceForWidth(+metalCoilWidth || 0, coilWidthScale);
-  const pvdfMultRef = catalogFindPaint(activeCatalog, "pvdf")?.mult || 1;
-  const metalCoilPricePerFt = interpolatedCoilPerFt !== null
-    ? interpolatedCoilPerFt * (activePaint.mult / pvdfMultRef)
-    : ((+metalCoilWidth || 0) / 12) * ratePerSqft;
   const handleBrandChange = (nextBrand) => {
     setBrand(nextBrand);
     // paintId hasn't been updated yet at this point (that happens below), so figure out
@@ -5594,8 +5594,9 @@ export default function ShopOrderApp() {
   // brand matters: Copper/G90/Galvalume/Bonderized price from their own rate tables,
   // and submitOrder computes the real order price WITH brand — the estimate must match it.
   // A panel is one run: Length is every panel end to end and there is no panel count, so its
-  // quantity is always 1 (the shared `quantity` belongs to the trim, metal and 3D forms). The
-  // profile picks the takeup and any profile fabrication row (FWQ100), as on the server.
+  // quantity is always 1 (the shared `quantity` belongs to the trim and metal forms; a 3D part
+  // has its own partQty). The profile picks the takeup and any profile fabrication row
+  // (FWQ100), as on the server.
   // panelOrderFields builds the panel's fields for this estimate, the order and the Job Vault
   // save alike, so the price on the screen is the price of what is sent.
   const panelForm = { profile, width, height, coilWidth, gaugeId, paintId, brand, colorName, runLocation, jobSiteMiles };
@@ -5604,9 +5605,12 @@ export default function ShopOrderApp() {
     : shapeType === "metal"
     ? { type: "metal", flatWidth, flatLength, coilWidth: metalCoilWidth, coilLength: metalCoilLength, quantity, gaugeId, paintId, brand, colorName }
     : shapeType === "part3d"
-    ? { type: "part3d", partType, partW, partD, partH, partCapH, partPostH, partOverhang, partShelf, partLeg, capRibs, outletShape, flangeW, flangeD, outletDiameter, outletLength, topTrim, bodyTaper, taperStart, taperLength, flangeTapered, flangeLength, outletRoundTapered, capStyle, scupOutlet, scupRoofMode, scupFlange, scupDeckLeg, scupProj, scupPlateW, scupPlateH, scupBoxW, scupBoxD, scupBoxH, scupDsSize, scupDsLen, quantity, gaugeId, paintId, brand, colorName }
+    ? { type: "part3d", partType, partW, partD, partH, partCapH, partPostH, partOverhang, partShelf, partLeg, capRibs, outletShape, flangeW, flangeD, outletDiameter, outletLength, topTrim, bodyTaper, taperStart, taperLength, flangeTapered, flangeLength, outletRoundTapered, capStyle, scupOutlet, scupRoofMode, scupFlange, scupDeckLeg, scupProj, scupPlateW, scupPlateH, scupBoxW, scupBoxD, scupBoxH, scupDsSize, scupDsLen, quantity: partQty, gaugeId, paintId, brand, colorName }
     : { type: "trim", points, quantity, lengthPerPiece, gaugeId, paintId, brand, colorName };
   const estimate = computePrice(draft, priceList, coilWidthScale, sellTier, activeCatalog);
+  // the metal form's $/Sheet and $/Linear Ft boxes: the two parts of that same price, the
+  // premium-color factor in both, so the sheets and the coil add up to the Estimated total
+  const metalParts = shapeType === "metal" ? metalPriceParts(draft, priceList, coilWidthScale, sellTier, activeCatalog) : null;
   // the coil and fabrication rates that estimate is built from, for the panel form to show
   const panelParts = shapeType === "panel" ? panelPriceParts(draft, priceList, sellTier, activeCatalog, coilWidthScale) : null;
   const girth = profileGirth(points, hemStart, hemEnd); // legs plus the end folds — the width the shear cuts
@@ -5633,7 +5637,7 @@ export default function ShopOrderApp() {
     setPoints(TRIM_PRESETS["Eave / Drip Edge"]); setPreset("Eave / Drip Edge");
     setHemStart("none"); setHemEnd("none"); setPaintSide("right");
     setMaterialCategory("painted"); setGaugeId(activeCatalog.gauges.painted[0].id); setPaintId(activeCatalog.paints[0].id); setBrand(activeCatalog.brands[0]); setColorName(activeCatalog.colors[activeCatalog.brands[0]]?.[0]?.name || "");
-    setQuantity(4); setLengthPerPiece(10); setSheetWidth(48); setPartName("");
+    setQuantity(4); setLengthPerPiece(10); setSheetWidth(48); setPartName(""); setPartQty(1);
     setEditingId(null); setBoxReturn(null); editSnapshot.current = null; setRoofBoxOpen(false); setBox3dReturn(false);
     setCustomerName(""); setPhone(""); setNotes("");
   };
@@ -5678,7 +5682,7 @@ export default function ShopOrderApp() {
       setRoofBoxKind(boxReturnKind); setRoofBoxOpen(true);
     }
     setToast(`"${item.name}" added to the order — ${basket.length + 1} part${basket.length + 1 === 1 ? "" : "s"} so far.`);
-    setTimeout(() => setToast(""), 3000);
+    clearToastIn(3000);
   };
 
   const removeBasketItem = (id) => {
@@ -5705,7 +5709,7 @@ export default function ShopOrderApp() {
     if (it.brand) setBrand(it.brand); if (it.colorName) setColorName(it.colorName); // brand then colour directly — handleBrandChange would reset the colour
     setViewResetKey((k) => k + 1);
     canvasTopRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    setToast(`Editing "${it.name}" — change what you need, then Update Part.`); setTimeout(() => setToast(""), 3500);
+    setToast(`Editing "${it.name}" — change what you need, then Update Part.`); clearToastIn(3500);
   };
   // The edit is over: the canvas and form go back to what they held before the part was tapped.
   const restoreCanvas = () => {
@@ -5728,9 +5732,9 @@ export default function ShopOrderApp() {
     setBasket((b) => b.map((i) => (i.id === editingId ? item : i)));
     if (boxReturn === "edit") setBoxNote(`Updated ${item.name} ×${item.quantity}.`);
     restoreCanvas();
-    setToast(`"${item.name}" updated.`); setTimeout(() => setToast(""), 3000);
+    setToast(`"${item.name}" updated.`); clearToastIn(3000);
   };
-  const cancelEdit = () => { restoreCanvas(); setToast("Left as it was."); setTimeout(() => setToast(""), 2000); };
+  const cancelEdit = () => { restoreCanvas(); setToast("Left as it was."); clearToastIn(2000); };
 
   /* ---------- The kits: Residential and Commercial ---------- */
   const boxKind = BOX_KINDS[roofBoxKind];
@@ -5843,14 +5847,14 @@ export default function ShopOrderApp() {
   const boxPending = boxReturn && boxReturn !== "edit" && boxReturnKind === roofBoxKind && points.length >= 2 ? { ...draftPart(), kit: boxReturn } : null;
   const addRoofBoxToOrder = () => {
     const added = boxPending ? [boxPending, ...roofBoxPicked] : roofBoxPicked;
-    if (added.length === 0) { setToast("Tick at least one trim to add the box to the order."); setTimeout(() => setToast(""), 3000); return; }
+    if (added.length === 0) { setToast("Tick at least one trim to add the box to the order."); clearToastIn(3000); return; }
     setBasket((b) => [...b, ...added]);
     setRoofBoxSel((sel) => { const next = { ...sel }; for (const it of added) if (it.kit) next[it.kit] = 0; return next; }); // in the order now — tick again for more
     if (!editingId) { clearDrawing(); setPartPhoto(null); } // same as Add Part: the canvas draft must not ride along as an extra part — unless it is a part being edited, which orderParts already counts once
     setRoofBoxOpen(false); dropNav("kit");
     const pcs = added.reduce((sum, it) => sum + (+it.quantity || 0), 0);
     setToast(`${boxKind.label} — ${added.length} ${boxNoun}${added.length === 1 ? "" : "s"}, ${pcs} piece${pcs === 1 ? "" : "s"} added to the order${boxPending ? ` (the ${boxPending.name} from the canvas with them)` : ""}.`);
-    setTimeout(() => setToast(""), 4000);
+    clearToastIn(4000);
   };
   // One row straight into the order at its quantity (1 if it is unticked), the box staying open.
   const addRoofBoxRow = (it) => {
@@ -5870,7 +5874,7 @@ export default function ShopOrderApp() {
     setHemStart(it.hemStart); setHemEnd(it.hemEnd); setPaintSide(it.paintSide); setPartName(it.name); setDrawnPitch(it.pitch ?? roofBoxPitch);
     setQuantity(roofBoxSel[it.id] > 0 ? roofBoxSel[it.id] : 4);
     setViewResetKey((k) => k + 1); setRoofBoxOpen(false); dropNav("kit");
-    setToast(`${it.name} is on the canvas — adjust any leg, then Add Part to Order.${replaced ? ` It took the place of the ${replaced} that was there.` : ""}`); setTimeout(() => setToast(""), 4000);
+    setToast(`${it.name} is on the canvas — adjust any leg, then Add Part to Order.${replaced ? ` It took the place of the ${replaced} that was there.` : ""}`); clearToastIn(4000);
   };
   // A scupper or a collector box is built in the 3D tool, not drawn — its row in the Commercial Kit
   // takes the roofer there with that part up, and the tool shows the way back. The trims in the
@@ -5888,9 +5892,9 @@ export default function ShopOrderApp() {
   const openBox3dPart = (it) => {
     if (editingId) restoreCanvas(); // a part being changed goes back in its place first
     setRoofBoxOpen(false); setBox3dReturn(true);
-    seedPartDims(it.tool3d, partType);
+    seedPartDims(it.tool3d, partType); setPartQty(1); // a kit row is one part per outlet or drop; Qty is there to change
     setPartType(it.tool3d); setShapeType("part3d"); setOrderStep("details"); pushNav("part3d");
-    setToast(`${it.name} — size it in the 3D tool and send it as its own part. The parts in your list stay; sending brings you back to the Commercial Kit for the rest.`); setTimeout(() => setToast(""), 5000);
+    setToast(`${it.name} — size it in the 3D tool and send it as its own part. The parts in your list stay; sending brings you back to the Commercial Kit for the rest.`); clearToastIn(5000);
   };
 
   // Screws only sell in lots of 100 — the qty spinner steps by the lot size and any
@@ -5922,9 +5926,21 @@ export default function ShopOrderApp() {
 
   const basketPartsCount = basket.reduce((s, i) => s + i.quantity, 0);
   const basketSheets = basket.reduce((s, i) => s + i.sheetsNeeded, 0);
-  const combinedEstimate = shapeType === "trim"
-    ? orderParts().reduce((s, i) => s + i.price, 0)
-    : estimate;
+  const trimParts = shapeType === "trim" ? orderParts() : null;
+  const combinedEstimate = trimParts ? trimParts.reduce((s, i) => s + i.price, 0) : estimate;
+  // Why Send would be refused right now — the same orderLineProblem it runs, and submit-order
+  // after it — shown under the Estimated total while it holds, so a $0.00 (or bends-only)
+  // estimate never sits there unexplained and the reason doesn't wait for a toast after Send.
+  const estimateProblem = (() => {
+    if (isDemo || shapeType === "panel") return null; // a panel has its own gates beside its fields
+    if (!trimParts) return orderLineProblem(draft, estimate);
+    if (trimParts.length === 0) return "Draw at least two points, or add a part to the order first.";
+    for (const it of trimParts) {
+      const problem = orderLineProblem({ type: "trim", partName: it.name, points: it.points, quantity: it.quantity, lengthPerPiece: it.lengthPerPiece }, it.price);
+      if (problem) return problem;
+    }
+    return null;
+  })();
 
   // PO numbers are the shop's: submit-order takes the next one from the shop's own counter
   // and stamps every part of the job with it, so nothing is chosen here. The reply carries
@@ -5942,9 +5958,9 @@ export default function ShopOrderApp() {
     if (shapeType === "panel") {
       if (ribStyle === null) { setToast("Pick a rib style (or None) before sending the order."); return; }
       if (clipRelief === null) { setToast("Choose whether Clip Relief is ON or OFF before sending the order."); return; }
-      if (coilUnavailable) { setToast("Coil over 48\" isn't available — 48\" is the widest we can run."); setTimeout(() => setToast(""), 5000); return; }
-      if (runLocation === "Job Site" && (jobSiteAddress.trim() === "" || jobSiteMiles === "")) { setToast("Add the job site address and tap Look up (or type the one-way miles) so mileage can be figured."); setTimeout(() => setToast(""), 5000); return; }
-      if (coilOverMax) { setToast("Coil over 24\" can't be priced online — call the shop and we'll quote it."); setTimeout(() => setToast(""), 5000); return; }
+      if (coilUnavailable) { setToast("Coil over 48\" isn't available — 48\" is the widest we can run."); clearToastIn(5000); return; }
+      if (runLocation === "Job Site" && (jobSiteAddress.trim() === "" || jobSiteMiles === "")) { setToast("Add the job site address and tap Look up (or type the one-way miles) so mileage can be figured."); clearToastIn(5000); return; }
+      if (coilOverMax) { setToast("Coil over 24\" can't be priced online — call the shop and we'll quote it."); clearToastIn(5000); return; }
     }
 
     if (shapeType === "trim") {
@@ -5989,6 +6005,10 @@ export default function ShopOrderApp() {
         order.price = computePrice(order, priceList, coilWidthScale, sellTier, activeCatalog);
         return order;
       });
+      // the same check submit-order makes: with no order charge, a part with no quantity or
+      // length would go in at $0.00, so it is refused here before anything is sent
+      const lineProblem = newOrders.map((o) => orderLineProblem(o, o.price)).find(Boolean);
+      if (lineProblem) { setSubmitting(false); setToast(lineProblem); clearToastIn(6000); return; }
       const saved = await insertOrders(newOrders);
       setSubmitting(false);
       if (!saved) return; // insertOrders already said so — keep the parts so they can retry
@@ -5998,7 +6018,7 @@ export default function ShopOrderApp() {
       setToast(`Order sent — ${po ? `${po}, ` : ""}${newOrders.length} part${newOrders.length === 1 ? "" : "s"}, estimate ${money(totalPrice)}. The shop will confirm final pricing.`);
       setBasket([]);
       resetForm();
-      setTimeout(() => setToast(""), 6000);
+      clearToastIn(6000);
       return;
     }
 
@@ -6056,7 +6076,7 @@ export default function ShopOrderApp() {
       scupBoxH: isPart3d && partType === "scupper" && scupOutlet === "collector" ? scupBoxH : undefined,
       scupDsSize: isPart3d && partType === "scupper" && scupOutlet === "collector" ? scupDsSize : undefined,
       scupDsLen: isPart3d && partType === "scupper" && scupOutlet === "collector" ? scupDsLen : undefined,
-      quantity,
+      quantity: isPart3d ? partQty : quantity,
       runLocation: isMetal || isPart3d ? undefined : runLocation,
       jobSiteAddress: !isMetal && !isPart3d && runLocation === "Job Site" ? jobSiteAddress.trim() : "",
       jobSiteMiles: !isMetal && !isPart3d && runLocation === "Job Site" ? (+jobSiteMiles || 0) : undefined,
@@ -6078,9 +6098,12 @@ export default function ShopOrderApp() {
     if (shapeType === "panel") {
       // the same check submit-order makes, so a refusal reads here before anything is sent
       const problem = panelOrderProblem(order, activeCatalog);
-      if (problem) { setSubmitting(false); setToast(problem); setTimeout(() => setToast(""), 6000); return; }
+      if (problem) { setSubmitting(false); setToast(problem); clearToastIn(6000); return; }
     }
     order.price = computePrice(order, priceList, coilWidthScale, sellTier, activeCatalog);
+    // and the check every line gets: nothing on it, or nothing to charge, is refused here as it is on the server
+    const lineProblem = orderLineProblem(order, order.price);
+    if (lineProblem) { setSubmitting(false); setToast(lineProblem); clearToastIn(6000); return; }
     const saved = await insertOrders([order]);
     setSubmitting(false);
     if (!saved) return; // insertOrders already said so — keep the form so they can retry
@@ -6089,7 +6112,7 @@ export default function ShopOrderApp() {
     if (box3dReturn) { // reached from the Commercial Kit: the trim order is still being built, so back to it — name, phone and notes kept
       dropNav("part3d"); setBox3dReturn(false); setBoxNote(`${PART3D_LABELS[partType]} sent as its own order — pick the next piece.`); openRoofBox("com");
     } else resetForm();
-    setTimeout(() => setToast(""), 5000);
+    clearToastIn(5000);
   };
 
   /* ---------- Job Vault ---------- */
@@ -6193,19 +6216,19 @@ export default function ShopOrderApp() {
       scupDsSize: isPart3d && partType === "scupper" && scupOutlet === "collector" ? scupDsSize : undefined,
       scupDsLen: isPart3d && partType === "scupper" && scupOutlet === "collector" ? scupDsLen : undefined,
       accessories: !isPart3d && accessories.length > 0 ? accessories : undefined,
-      quantity, gaugeId, paintId, brand, colorName, colorHex: colorObj.hex,
+      quantity: isPart3d ? partQty : quantity, gaugeId, paintId, brand, colorName, colorHex: colorObj.hex,
       // a panel saves the estimate's own fields (one run, its coil width)
       ...(shapeType === "panel" ? panelOrderFields(panelForm) : {}),
     }];
   };
 
   const saveToVault = async (jobNameRaw) => {
-    if (!catalogReady) { setToast("Loading this shop's catalog — try again in a second."); setTimeout(() => setToast(""), 3000); return; }
-    if (!priceListLoaded) { setToast("Still loading current prices — try again in a second."); setTimeout(() => setToast(""), 3000); return; }
+    if (!catalogReady) { setToast("Loading this shop's catalog — try again in a second."); clearToastIn(3000); return; }
+    if (!priceListLoaded) { setToast("Still loading current prices — try again in a second."); clearToastIn(3000); return; }
     const jobName = (jobNameRaw || "").trim() || "My Job";
     const payloads = buildVaultPayloads();
-    if (payloads.length === 0) { setToast("Nothing to save yet — draw a part or set up a panel first."); setTimeout(() => setToast(""), 3000); return; }
-    if (shapeType === "panel" && coilOverMax) { setToast(coilUnavailable ? "Coil over 48\" isn't available — 48\" is the widest we can run." : "Coil over 24\" can't be priced online — call the shop for a quote before saving it."); setTimeout(() => setToast(""), 5000); return; }
+    if (payloads.length === 0) { setToast("Nothing to save yet — draw a part or set up a panel first."); clearToastIn(3000); return; }
+    if (shapeType === "panel" && coilOverMax) { setToast(coilUnavailable ? "Coil over 48\" isn't available — 48\" is the widest we can run." : "Coil over 24\" can't be priced online — call the shop for a quote before saving it."); clearToastIn(5000); return; }
     setSavingVault(true);
     const rows = payloads.map((p) => ({
       user_id: user.id,
@@ -6216,12 +6239,12 @@ export default function ShopOrderApp() {
     }));
     const { data, error } = await supabase.from("vault_items").insert(rows).select();
     setSavingVault(false);
-    if (error) { setToast("Couldn't save to your vault — check your connection and try again."); setTimeout(() => setToast(""), 4000); return; }
+    if (error) { setToast("Couldn't save to your vault — check your connection and try again."); clearToastIn(4000); return; }
     setVaultItems((prev) => [...(data || []), ...prev]);
     setVaultSaveOpen(false);
     setVaultJobName("");
     setToast(`Saved ${rows.length === 1 ? "1 item" : `${rows.length} items`} to "${jobName}" in your Job Vault.`);
-    setTimeout(() => setToast(""), 4000);
+    clearToastIn(4000);
   };
 
   const deleteVaultItem = async (id) => {
@@ -6261,6 +6284,7 @@ export default function ShopOrderApp() {
     // a panel is one run (its Length is the whole of it); an older panel order's quantity is not
     // carried into the trim and metal forms either
     if (kind === "panel") setQuantity(1);
+    else if (kind === "part3d") setPartQty(p.quantity ?? 1); // a 3D part's count goes in its own Qty, not the trim form's
     else if (p.quantity != null) setQuantity(p.quantity);
     setAccessories(Array.isArray(p.accessories) ? p.accessories : []);
     if (kind === "trim") {
@@ -6355,7 +6379,7 @@ export default function ShopOrderApp() {
     setPanelLoadNote(note || "");
     const told = [swapped, note].filter(Boolean).join(" ");
     setToast(told || `Loaded "${vaultItemLabel(item)}" from ${sourceLabel} — adjust anything and send when ready.`);
-    setTimeout(() => setToast(""), told ? 9000 : 4000);
+    clearToastIn(told ? 9000 : 4000);
   };
 
   const updateStatus = async (id, status) => {
@@ -7083,8 +7107,8 @@ export default function ShopOrderApp() {
                         </label>
                         <label style={{ flex: 1, fontSize: 11, color: theme.textSecondary }}>
                           $/Sheet
-                          <div className="mono" style={priceBox}>{priceText(flatSheetPrice)}</div>
-                          <div className="mono" style={{ fontSize: 9.5, color: theme.textSecondary, marginTop: 3, whiteSpace: "nowrap" }}>× {quantity || 0} = {priceText(flatSheetPrice * (+quantity || 0))}</div>
+                          <div className="mono" style={priceBox}>{priceText(metalParts.perSheet)}</div>
+                          <div className="mono" style={{ fontSize: 9.5, color: theme.textSecondary, marginTop: 3, whiteSpace: "nowrap" }}>× {quantity || 0} = {priceText(metalParts.perSheet * (+quantity || 0))}</div>
                         </label>
                       </div>
 
@@ -7106,8 +7130,8 @@ export default function ShopOrderApp() {
                         </label>
                         <label style={{ flex: 1, fontSize: 11, color: theme.textSecondary }}>
                           $/Linear Ft
-                          <div className="mono" style={priceBox}>{priceText(metalCoilPricePerFt)}</div>
-                          <div className="mono" style={{ fontSize: 9.5, color: theme.textSecondary, marginTop: 3, whiteSpace: "nowrap" }}>× {Math.round(coilFeet)} ft = {priceText(metalCoilPricePerFt * coilFeet)}</div>
+                          <div className="mono" style={priceBox}>{priceText(metalParts.perFt)}</div>
+                          <div className="mono" style={{ fontSize: 9.5, color: theme.textSecondary, marginTop: 3, whiteSpace: "nowrap" }}>× {Math.round(coilFeet)} ft = {priceText(metalParts.perFt * metalParts.coilFeet)}</div>
                         </label>
                       </div>
                       <div style={{ fontSize: 10, color: theme.textSecondary, marginTop: 6 }}>
@@ -7150,6 +7174,14 @@ export default function ShopOrderApp() {
                 </div>
 
                 <div style={{ display: "flex", gap: 8 }}>
+                  {/* the 3D part's own count — it used to ride on the trim form's hidden quantity */}
+                  <label style={{ width: 64, flexShrink: 0, fontSize: 11, color: theme.textSecondary }}>
+                    Qty
+                    <input type="number" min={1} step={1} value={partQty} data-testid="part3d-qty"
+                      onChange={(e) => setPartQty(e.target.value === "" ? "" : Math.max(0, +e.target.value))}
+                      onBlur={(e) => { if (e.target.value === "") setPartQty(1); }}
+                      className="mono" style={{ width: "100%", padding: 8, marginTop: 4, border: `1px solid ${theme.border}`, borderRadius: 6, fontSize: 14, background: theme.inputBg, color: theme.text, boxSizing: "border-box" }} />
+                  </label>
                   <label style={{ flex: 1, fontSize: 11, color: theme.textSecondary }}>
                     {partType === "scupper" ? "Opening width (in)" : "Width (in)"}{partType === "collector" && <span style={{ color: theme.textSecondary, fontWeight: 400 }}> (max 150)</span>}
                     <input type="number" min={0.1} max={partType === "collector" ? 150 : undefined} step="0.1" value={partW}
@@ -8538,19 +8570,25 @@ export default function ShopOrderApp() {
           {/* estimate + submit — signed out, the price is withheld and the button
               asks for the free account instead of sending anything */}
           <div style={{ background: INK, borderRadius: 10, padding: 14, marginTop: 12, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-            <div>
+            <div style={{ flex: "1 1 200px", minWidth: 0 }}>
               <div style={{ color: "#CFE3EF", fontSize: 11 }}>
                 {isDemo ? "Pricing for your area needs a free account" : shapeType === "trim" ? `Estimated total${basket.length > 0 ? ` · ${orderParts().length} part(s)` : ""}` : "Estimated total"}
               </div>
               <div className="mono" style={{ color: "#fff", fontSize: isDemo ? 14 : 22, fontWeight: 600 }}>
                 {isDemo ? "Your drawing is ready to send" : shapeType === "panel" && coilOverMax ? coilGateText : money(combinedEstimate)}
               </div>
+              {estimateProblem && (
+                <div id="estimate-problem" data-testid="estimate-problem" style={{ color: "#F5D27A", fontSize: 11.5, fontWeight: 600, marginTop: 4, lineHeight: 1.35 }}>
+                  {estimateProblem}
+                </div>
+              )}
             </div>
-            <button onClick={isDemo ? () => openAuth("signup") : submitOrder} disabled={!isDemo && submitting}
+            {/* still pressable while the line would be refused: Send then says the same in a toast */}
+            <button onClick={isDemo ? () => openAuth("signup") : submitOrder} disabled={!isDemo && submitting} aria-describedby={estimateProblem ? "estimate-problem" : undefined}
               className="disp tap-bounce"
               style={{
                 background: `linear-gradient(135deg, ${SAFETY}, #F0C955)`, color: "#fff", border: "none", padding: "13px 22px", borderRadius: 10,
-                fontSize: 13.5, fontWeight: 700, cursor: !isDemo && submitting ? "default" : "pointer", opacity: !isDemo && submitting ? 0.7 : 1,
+                fontSize: 13.5, fontWeight: 700, cursor: !isDemo && submitting ? "default" : "pointer", opacity: !isDemo && submitting ? 0.7 : estimateProblem ? 0.55 : 1,
                 boxShadow: `0 4px 14px ${SAFETY}55`,
               }}>
               {isDemo ? "Sign up free for pricing in your area" : submitting ? "Sending…" : "🚀 Send Order"}

@@ -300,8 +300,8 @@ export function panelOrderFields(f) {
 //   that is what is charged, on every metal (copper at twice the row) — not spread over the
 //   coil row's width and not marked up for paint, which is metal, not roll-forming.
 //   Run minimum: the run is charged the coil and fabrication together, or the minimum
-//   ($200 shop-rolled, $600 on a job site) when they come to less — never both. A panel run
-//   carries no order charge on top.
+//   ($200 shop-rolled, $600 on a job site) when they come to less — never both. A panel run,
+//   like every other order line, carries no order charge on top.
 export function panelPriceParts(order, priceList, tier, catalog = DEFAULT_CATALOG, coilWidthScale = DEFAULT_COIL_WIDTH_SCALE) {
   const rates = getSellRates(order.gaugeId, order.brand, priceList, order.profile, tier, catalog);
   const paint = paintFor(order.brand, order.paintId, catalog);
@@ -444,37 +444,57 @@ export function panelOrderProblem(order, catalog = DEFAULT_CATALOG) {
   return null;
 }
 
+// A flat sheet and coil order's price in its two parts, as the metal form shows them: the
+// price of one sheet and of one linear foot of coil, each with the premium-color factor in it,
+// so the sheets (perSheet × sheets) and the coil (perFt × coilFeet) add up to the total that is
+// charged. computePrice's metal price is this total.
+//   Flat sheets price as material ($/sq ft) + a flat processing fee per sheet, pulled from the
+// Price List's "Flat Sheet Material" / "Flat Sheet Processing" items — falling back to the old
+// gauge-derived rate (material only, no processing fee) if those items aren't in the Price List.
+//   Coil prefers the real interpolated width scale (actual supplier price points) over the flat
+// derived $/sqft rate, since coil doesn't price out linearly with width in the real world —
+// falling back to the flat rate if there aren't at least 2 scale points to interpolate between.
+// The scale points themselves are PVDF pricing, so they apply as-is for PVDF orders and get
+// scaled down by the PVDF/SMP ratio for SMP orders, rather than getting the PVDF multiplier
+// stacked on top of an already-PVDF price.
+export function metalPriceParts(order, priceList, coilWidthScale, tier, catalog = DEFAULT_CATALOG) {
+  const rates = getSellRates(order.gaugeId, order.brand, priceList, order.profile, tier, catalog);
+  const paint = paintFor(order.brand, order.paintId, catalog);
+  const premiumMult = findColor(catalog, order.colorName, order.brand, order.paintId)?.premium ? 1.12 : 1;
+  const flatSqft = ((order.flatWidth || 0) * (order.flatLength || 0)) / 144;
+  const flatMaterialItem = priceList?.find((p) => p.name.toLowerCase().includes("flat sheet material") && sellRate(p, tier) !== undefined);
+  const flatProcessingItem = priceList?.find((p) => p.name.toLowerCase().includes("flat sheet processing") && sellRate(p, tier) !== undefined);
+  const flatMaterialRate = flatMaterialItem ? sellRate(flatMaterialItem, tier) : rates.coilSqft;
+  const flatProcessingFee = flatProcessingItem ? sellRate(flatProcessingItem, tier) : 0;
+  const sheetCost = flatSqft * flatMaterialRate * paint.mult + flatProcessingFee;
+  const flatCost = sheetCost * order.quantity;
+  const interpolatedPerFt = coilPriceForWidth(order.coilWidth, coilWidthScale);
+  const pvdfMult = findPaint(catalog, "pvdf")?.mult || 1;
+  const coilFeet = (order.coilLength || 0) / 12;
+  const coilCost = interpolatedPerFt !== null
+    ? interpolatedPerFt * (paint.mult / pvdfMult) * coilFeet
+    : (((order.coilWidth || 0) * (order.coilLength || 0)) / 144) * rates.coilSqft * paint.mult;
+  const footCost = interpolatedPerFt !== null
+    ? interpolatedPerFt * (paint.mult / pvdfMult)
+    : ((order.coilWidth || 0) / 12) * rates.coilSqft * paint.mult;
+  const base = flatCost + coilCost;
+  return {
+    perSheet: sheetCost * premiumMult, perFt: footCost * premiumMult, coilFeet, premiumMult,
+    total: base * premiumMult, // the metal and its processing alone: no order charge, no minimum
+  };
+}
+
+// An order line's price at a tier. No line carries an order charge or a minimum price: trim,
+// flat sheet and coil, and 3D parts are their material and work alone (times 1.12 for a
+// premium color), and a panel run is panelPriceParts' total, whose run minimum is a gate, not
+// a charge. A line with nothing in it prices at $0.00 and is refused by orderLineProblem.
 export function computePrice(order, priceList, coilWidthScale, tier, catalog = DEFAULT_CATALOG) {
   const rates = getSellRates(order.gaugeId, order.brand, priceList, order.profile, tier, catalog);
   const paint = paintFor(order.brand, order.paintId, catalog);
   const colorObj = findColor(catalog, order.colorName, order.brand, order.paintId);
   const premiumMult = colorObj?.premium ? 1.12 : 1;
   if (order.type === "metal") {
-    const flatSqft = ((order.flatWidth || 0) * (order.flatLength || 0)) / 144;
-    // Flat sheets price as material ($/sq ft) + a flat processing fee per sheet, pulled
-    // from the Price List's "Flat Sheet Material" / "Flat Sheet Processing" items —
-    // falls back to the old gauge-derived rate (material only, no processing fee) if
-    // those items aren't in the Price List.
-    const flatMaterialItem = priceList?.find((p) => p.name.toLowerCase().includes("flat sheet material") && sellRate(p, tier) !== undefined);
-    const flatProcessingItem = priceList?.find((p) => p.name.toLowerCase().includes("flat sheet processing") && sellRate(p, tier) !== undefined);
-    const flatMaterialRate = flatMaterialItem ? sellRate(flatMaterialItem, tier) : rates.coilSqft;
-    const flatProcessingFee = flatProcessingItem ? sellRate(flatProcessingItem, tier) : 0;
-    const flatCost = (flatSqft * flatMaterialRate * paint.mult + flatProcessingFee) * order.quantity;
-    // Coil pricing prefers the real interpolated width scale (actual supplier price
-    // points) over the flat derived $/sqft rate, since coil doesn't price out linearly
-    // with width in the real world — falls back to the flat rate if there aren't at
-    // least 2 scale points to interpolate between. The scale points themselves are
-    // PVDF pricing, so they apply as-is for PVDF orders and get scaled down by the
-    // PVDF/SMP ratio for SMP orders, rather than getting the PVDF multiplier stacked
-    // on top of an already-PVDF price.
-    const interpolatedPerFt = coilPriceForWidth(order.coilWidth, coilWidthScale);
-    const pvdfMult = findPaint(catalog, "pvdf")?.mult || 1;
-    const coilFeet = (order.coilLength || 0) / 12;
-    const coilCost = interpolatedPerFt !== null
-      ? interpolatedPerFt * (paint.mult / pvdfMult) * coilFeet
-      : (((order.coilWidth || 0) * (order.coilLength || 0)) / 144) * rates.coilSqft * paint.mult;
-    const base = flatCost + coilCost;
-    return Math.max(15, base * premiumMult + 15);
+    return metalPriceParts(order, priceList, coilWidthScale, tier, catalog).total;
   } else if (order.type === "part3d") {
     const W = order.partW || 0, D = order.partD || 0, H = order.partH || 0, CH = order.partCapH || 0;
     let sqin;
@@ -515,7 +535,7 @@ export function computePrice(order, priceList, coilWidthScale, tier, catalog = D
     let formingFee = feeFor(fabItemName);
     if (order.partType === "scupper" && order.scupOutlet === "collector") formingFee += feeFor("collector box");
     const base = sqft * rates.coilSqft * paint.mult * order.quantity + formingFee * order.quantity;
-    return Math.max(20, base * premiumMult + 20);
+    return base * premiumMult; // the metal and its forming fee alone: no order charge, no minimum
   } else if (order.type === "panel") {
     return panelPriceParts(order, priceList, tier, catalog, coilWidthScale).total;
   } else {
@@ -523,6 +543,73 @@ export function computePrice(order, priceList, coilWidthScale, tier, catalog = D
     const bends = Math.max(0, points.length - 2);
     const totalFt = order.lengthPerPiece * order.quantity;
     const base = (totalFt * rates.trimFt * paint.mult) + bends * 2 * order.quantity;
-    return Math.max(10, base * premiumMult + 10);
+    return base * premiumMult; // the trim and its bends alone: no order charge, no minimum
   }
+}
+
+// The size and quantity fields each kind of line is priced from. None of them is ever below
+// zero on the order form; a request that sends one is refused rather than priced down.
+const LINE_FIELDS = {
+  trim: ["quantity", "lengthPerPiece"],
+  metal: ["quantity", "flatWidth", "flatLength", "coilWidth", "coilLength"],
+  part3d: ["quantity", "partW", "partD", "partH", "partCapH", "partPostH", "partOverhang", "partShelf", "partLeg",
+    "scupFlange", "scupDeckLeg", "scupProj", "scupPlateW", "scupPlateH", "scupBoxW", "scupBoxD", "scupBoxH", "scupDsLen"],
+};
+
+// The sizes each 3D part is priced from, in the words its form uses. A part with any of them
+// at 0 has no metal in it, and used to go in at its forming fee alone.
+const PART3D_SIZES = {
+  collector: { noun: "collector box", sizes: [["partW", "width"], ["partD", "depth"], ["partH", "height"]] },
+  scupper: { noun: "scupper", sizes: [["partW", "opening width"], ["partD", "wall thickness"], ["partH", "opening height"]] },
+  chimney: { noun: "chimney cap", sizes: [["partW", "width"], ["partD", "depth"]] },
+};
+
+// Why a trim, flat sheet / coil or 3D part line can't be sent, in words for the customer, or
+// null when it can. These lines are priced at their material and work alone, with no order
+// charge and no minimum (there used to be one: $10 on trim, $15 on flat sheet and coil, $20 on
+// a 3D part), so a line with nothing in it would now go in at $0.00 where it used to be
+// charged that minimum. submit-order refuses a line this returns a reason for, and the app
+// checks the same before sending and shows it under the estimate. Refused: a size or quantity
+// below zero or not a number; trim with no shape (fewer than two points), no quantity or no
+// length; a metal order with neither sheets nor coil, or sheets with no width or length; a 3D
+// part with no quantity or a size at 0; and a count of pieces, sheets or parts that isn't a
+// whole number (half a trim piece is not a thing the shop makes, and a sliver of one prices to
+// nothing). Pass the line's price to check that as well: a line that comes to under half a
+// cent — $0.00 on the screen, the ticket and the email — is refused whatever its sizes say. A
+// panel has its own check (panelOrderProblem); for a panel only the price is checked here.
+export function orderLineProblem(order, price) {
+  const type = order?.type;
+  const given = (v) => v != null && v !== "";
+  const n = (v) => (given(v) ? Number(v) : 0); // a blank box is nothing
+  const some = (v) => Number.isFinite(n(v)) && n(v) > 0;
+  const whole = (v) => Number.isInteger(n(v));
+  const name = type === "trim" && typeof order.partName === "string" && order.partName.trim() ? `"${order.partName.trim()}"` : null;
+  // a number, or a number typed as text — not a list or true/false, which JavaScript would count as one
+  const numeric = (v) => (typeof v === "number" || typeof v === "string") && Number.isFinite(Number(v)) && Number(v) >= 0;
+  if ((LINE_FIELDS[type] || []).some((k) => given(order[k]) && !numeric(order[k]))) {
+    return `A size or quantity on ${name || "this order"} is below zero or isn't a number — check it and send it again.`;
+  }
+  if (type === "trim") {
+    if (!Array.isArray(order.points) || order.points.length < 2) return `${name || "This part"} has no shape — draw at least two points.`;
+    if (!some(order.quantity)) return `${name || "This part"} has no quantity — put in how many pieces you need, or take it off the order.`;
+    if (!whole(order.quantity)) return `${name || "This part"}: Qty is a count of whole pieces — put in 1, 2, 3 and so on.`;
+    if (!some(order.lengthPerPiece)) return `${name || "This part"} has no length — put in how long each piece is.`;
+  } else if (type === "metal") {
+    const sheetCount = some(order.quantity);
+    const coil = some(order.coilWidth) && some(order.coilLength);
+    if (!sheetCount && !coil) return "This order has nothing on it — put in flat sheets (how many, width and length) or coil (width and length).";
+    if (sheetCount && !(some(order.flatWidth) && some(order.flatLength))) return "Flat sheets need a width and a length — put them in, or set the sheet Qty to 0 for coil only.";
+    if (sheetCount && !whole(order.quantity)) return "Put in a whole number of flat sheets — 1, 2, 3 and so on.";
+  } else if (type === "part3d") {
+    if (!some(order.quantity)) return "Put how many you need in Qty — it can't be 0.";
+    if (!whole(order.quantity)) return "Qty is a count of whole parts — put in 1, 2, 3 and so on.";
+    const part = PART3D_SIZES[order.partType] || PART3D_SIZES.collector; // any other part type is priced as a box
+    if (part.sizes.some(([k]) => !some(order[k]))) {
+      const words = part.sizes.map(([, w]) => w);
+      return `Put in the ${part.noun}'s ${words.slice(0, -1).join(", ")} and ${words[words.length - 1]} — each has to be more than 0.`;
+    }
+  }
+  // under half a cent shows, and is stored, as $0.00
+  if (price !== undefined && !(Math.round(Number(price) * 100) >= 1)) return `${name || "This order"} comes to $0.00 — check the quantity and sizes, or call the shop for a price.`;
+  return null;
 }
