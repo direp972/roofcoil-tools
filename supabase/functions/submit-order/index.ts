@@ -32,7 +32,7 @@
 // see migration 20261017200506_orders_server_priced.sql.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { computePrice, panelCoilWidthIn, panelOrderProblem, sellTierFor, DEFAULT_PRICE_LIST, DEFAULT_COIL_WIDTH_SCALE } from "../_shared/pricing.mjs";
+import { computePrice, orderLineProblem, panelCoilWidthIn, panelOrderProblem, sellTierFor, DEFAULT_PRICE_LIST, DEFAULT_COIL_WIDTH_SCALE } from "../_shared/pricing.mjs";
 import { DEFAULT_CATALOG, catalogFromRows, isUsableCatalog, resolveCatalog, isOffered } from "../_shared/catalog.mjs";
 
 const CORS = {
@@ -168,9 +168,19 @@ Deno.serve(async (req: Request) => {
       // the coil it is priced on goes on the row, for the shop's coil pull
       if (order.coilWidth == null) order.coilWidth = panelCoilWidthIn(order, catalog);
     }
+    // No line carries an order charge or a minimum any more, so a trim, flat sheet / coil or
+    // 3D part line with no quantity or size would go in at $0.00. It is refused in words, as
+    // the app refuses it before sending, and so is a size or quantity below zero, which would
+    // only price a line down, and a count of pieces, sheets or parts that isn't whole.
+    const sizeProblem = orderLineProblem(order);
+    if (sizeProblem) return json({ error: sizeProblem }, 400);
     let price: number;
     try { price = computePrice(order, priceList, coilWidthScale, tier, catalog); } catch { return json({ error: "That order can't be priced." }, 400); }
     if (!Number.isFinite(price) || price < 0) return json({ error: "That order can't be priced." }, 400);
+    // and a line that still comes to nothing — under half a cent, from a shop's own $0 rates or
+    // a sliver of a size — is not saved at $0.00
+    const zeroProblem = orderLineProblem(order, price);
+    if (zeroProblem) return json({ error: zeroProblem }, 400);
     order.price = price;
     order.tier = tier;
     order.shopId = shopId;

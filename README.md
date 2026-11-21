@@ -253,8 +253,30 @@ sheet over the chooser.
   in linear feet: the coil fed at the shop's Coil Width Price Scale band for its width
   (PVDF; SMP and unpainted steel at the SMP/PVDF ratio; copper at its Price List row across
   the coil width), fabrication on the Price List's $/LF on every metal (copper at twice it), the run charged coil + fabrication or the $200 shop /
-  $600 job-site minimum when that is more (never both), with no order charge on a panel, and `submit-order` refuses a pan width that isn't
-  the coil minus the profile's takeup. It also checks the panel form's own pieces: the
+  $600 job-site minimum when that is more (never both), and `submit-order` refuses a pan width that isn't
+  the coil minus the profile's takeup. No order carries an order charge: trim, flat sheet and
+  coil, and 3D parts are priced at their material and work alone (the Price List rows, bends,
+  processing and forming fees, paint and the premium-color factor), with no minimum. A line
+  with nothing on it (no quantity, a trim piece with no length or fewer than two points, a metal
+  order with neither sheets nor coil, flat sheets with no width or length, a 3D part with a size
+  at 0), a count of pieces, sheets or 3D parts that isn't a whole number, a size or quantity
+  below zero, and a line that still comes to $0.00 (under half a cent) are refused by the app before it sends, with the
+  reason shown under the Estimated total, and by `submit-order` (`orderLineProblem`). A 3D part
+  has its own Qty box, starting at 1. The metal form's $/Sheet and $/Linear Ft boxes come from
+  `metalPriceParts`, the same parts the price is made of, premium color included, so they add up
+  to the total. The check covers those prices at every tier, with and without a premium color,
+  and those refusals, and then runs `submit-order`'s own handler against a stand-in database
+  (`scripts/submit-order-check.mjs`; Node 22.18 or newer, which reads its TypeScript): a good
+  line saved at the server's price, the empty and $0.00 lines refused with nothing written.
+  **Deploying the no-order-charge change:** deploy `submit-order` first (its `index.ts` and both
+  `_shared` files, `--no-verify-jwt`), then merge, which deploys the page; `order-alert` prices
+  nothing and need not be redeployed. The other way round, the new page would show the lower
+  price while the old function stored, emailed and confirmed one $10 (trim), $15 (flat sheet and
+  coil) or $20 (3D part) higher. In this order, a page loaded before the merge still shows the
+  old, higher estimate until it is reloaded, but the order is saved, emailed and confirmed in
+  its toast at the new price, and a line the new function refuses (a 3D part sent with the old
+  page's hidden quantity of 0, say) comes back as a toast with the reason. The check also covers
+  the panel form's own pieces: the
   estimate, the order and the Job Vault save come from one `panelOrderFields`, a typed pan
   width keeps its coil, and the ticket, order lists, email and Reorder note read a panel as
   its total length. CI runs it before the build.
