@@ -325,3 +325,35 @@ sheet over the chooser.
 - The public forms are throttled in the database: Get Listed applications stop at 3 an hour
   from one address and 20 an hour overall, leads at 10 and 60, uploads at 60 an hour, and
   sign-ups at 3 an hour per inbox and 10 per connection.
+
+## Version numbers
+
+Every section of RoofCoil has its own version in RoofCoil's release log (vMAJOR.MINOR.PATCH),
+and this repo shows its sections' numbers in one small, muted line: the shop app at the very
+bottom of the app ("New Order vX.Y.Z · Pricing & Catalog vX.Y.Z · Shop Floor & Orders vX.Y.Z",
+under "Powered by RoofCoil.com" on fortifiedmetals.com), and every roofcoil.com page in its
+footer ("Supplier Directory vX.Y.Z · Website & Free Tools vX.Y.Z"). The numbers live in one
+file, **`versions.mjs`** at the top of the repo (id, app, name and version per section, as in
+the release log). `src/VersionLine.jsx` draws the shop's line from it; each page carries an
+empty `data-rc-versions="website"` slot that the build fills from it (`scripts/site-versions.mjs`,
+run at the end of `scripts/prerender.mjs`), so no page or component types a number itself.
+
+A change bumps the section(s) it touches, by the release log's rules: **major** when the way a
+price or quantity is worked out changes, something customers use is taken away, saved work
+breaks, or everyone must relearn or do something new; **minor** when something new is added, a
+figure on a quote, order or takeoff changes for the same input, a default changes, there is a
+new check or refusal, catalog items are listed or delisted, or one tool is reworked; **patch**
+for fixes, wording, look and layout, security or software updates, speed, and anything behind
+the scenes. A minor bump resets patch to 0; a major bump resets minor and patch to 0.
+
+`node scripts/versions-check.mjs` checks the file (every version MAJOR.MINOR.PATCH, ids unique,
+the sections' names) and that both lines are built from it; after a build,
+`node scripts/versions-check.mjs dist` also checks that every built page shows the line once
+(CI runs it). The sign-up confirmation and password reset pages (`confirm.html`, `reset.html`,
+on shop.roofcoil.com) carry no line: they belong to Accounts & Records, a section this repo
+doesn't keep. On the two sign-in-only pages (`manage-listing.html`, `directory-admin.html`) the
+line waits until the page shows a view, so it never sits alone under the nav while signed out.
+A commit that only adds or moves a page's slot leaves that page's sitemap date (`lastmod`) where
+it was. Under `npm run dev` the pages' slots stay empty; the line is written by the build.
+For a build without database access, `LISTINGS_FIXTURE=<rows.json>` feeds the prerender a
+listings file instead (see the top of `scripts/prerender.mjs`).
