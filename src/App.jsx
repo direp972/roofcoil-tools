@@ -7,6 +7,7 @@ import { useAuth } from "./lib/AuthProvider";
 import { scupperSpec, scupperBack, MILEAGE_FREE, MILEAGE_RATE, mileageCharge, computePrice, metalPriceParts, orderLineProblem, panelPriceParts, panelCoilWidthIn, panelOrderProblem, panelOrderFields, panelPanForCoil, panelCoilForPan, panelRunText, orderAmountText, panelReorderNote, panelPriceMath, coilBandForWidth, coilBandRangeText, sellTierFor, DEFAULT_PRICE_LIST, DEFAULT_COIL_WIDTH_SCALE } from "../supabase/functions/_shared/pricing.mjs";
 import { DEFAULT_CATALOG, listedProfiles, resolveCatalog, readTakeup, getColorsForBrand as catalogColorsForBrand, findColor as catalogFindColor, findGauge as catalogFindGauge, findPaint as catalogFindPaint } from "../supabase/functions/_shared/catalog.mjs";
 import { loadPlatformCatalog, loadPlatformCatalogRows, invalidatePlatformCatalog, addCatalogItem, setCatalogItemDelisted, setCatalogItemData, loadShopCatalogSelection } from "./lib/catalog";
+import VersionLine from "./VersionLine.jsx";
 
 /* ---------------------------------- tokens ---------------------------------- */
 const INK = "#0F3D5C";        // blueprint ink
@@ -9681,14 +9682,19 @@ export default function ShopOrderApp() {
         </div>
       )}
 
-      {ON_FORTIFIED && (
-        <div style={{ textAlign: "center", padding: "18px 12px 26px", fontSize: 11.5, color: STEEL }}>
-          Powered by{" "}
-          <a href="https://www.roofcoil.com" target="_blank" rel="noopener noreferrer" style={{ color: SAFETY, fontWeight: 700, textDecoration: "none" }}>
-            RoofCoil.com
-          </a>
-        </div>
-      )}
+      {/* The foot of the app, below everything: the shop's section versions (versions.mjs), and on
+          fortifiedmetals.com that site's attribution above them in the same muted style. */}
+      <div style={{ textAlign: "center", padding: "18px 12px 26px", fontSize: 11.5, color: STEEL }}>
+        {ON_FORTIFIED && (
+          <div style={{ marginBottom: 6 }}>
+            Powered by{" "}
+            <a href="https://www.roofcoil.com" target="_blank" rel="noopener noreferrer" style={{ color: SAFETY, fontWeight: 700, textDecoration: "none" }}>
+              RoofCoil.com
+            </a>
+          </div>
+        )}
+        <VersionLine app="shop" style={{ fontSize: 11 }} />
+      </div>
     </div>
   );
 }

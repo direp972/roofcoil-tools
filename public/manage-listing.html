@@ -12,6 +12,9 @@
 <script defer src="/_vercel/insights/script.js"></script>
 <style>
 .mlwrap{max-width:860px;margin:0 auto;padding:clamp(18px,3vw,34px) var(--gut) 60px}
+/* the version line waits for a view: signed out, only the sign-in box shows */
+.mlver{display:none}
+body:has(#loaderr:not([style*="none"]),#unlinked:not([style*="none"]),#manage:not([style*="none"])) .mlver{display:block}
 .chipgrid{display:flex;flex-wrap:wrap;gap:7px}
 .mini{font-family:var(--disp);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;padding:7px 14px;border-radius:999px;border:1.5px solid rgba(15,61,92,.25);background:#fff;color:var(--ink);cursor:pointer}
 .mini:hover{border-color:var(--gold)}
@@ -114,6 +117,8 @@
   </div>
   <p style="color:var(--steel);font-size:13px;margin-top:14px">Run another shop that's on the directory? <a href="#claim" id="c-another" style="color:var(--copper);font-weight:600">Claim that listing too</a>.</p>
 </div>
+
+<div class="mlwrap mlver" style="padding-top:0;padding-bottom:40px"><p data-rc-versions="website" class="mono" style="font-size:10.5px;color:var(--steel);letter-spacing:.05em;font-variant-numeric:tabular-nums;margin:0"></p></div>
 
 <script>
 const SUPA="https://znueitseoqijhkkvdomc.supabase.co";

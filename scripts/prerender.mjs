@@ -8,6 +8,8 @@
 //                                      adds anything published since this build)
 //   dist/sitemap.xml                   every public page plus the supplier pages
 //   dist/llms.txt                      a plain-text map of the site for AI assistants
+// and then fills the footer line with the website's section versions (versions.mjs) on every
+// page under dist/ that has a slot for it (scripts/site-versions.mjs).
 //
 // Listing text is applicant-submitted: everything is escaped, and every URL passes the
 // same gates the directory page applies before it becomes an href.
@@ -21,6 +23,7 @@ import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { DEFAULT_CATALOG, catalogToRows } from "../supabase/functions/_shared/catalog.mjs";
 import "../public/catalog-colors.js"; // the pages' own color index: globalThis.rcCatalogColors / rcCatalogColorsFromRows
+import { stampVersionLines, slotOnlyChange } from "./site-versions.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = path.resolve(process.env.OUT_DIR || path.join(ROOT, "dist"));
@@ -108,8 +111,17 @@ function splitCity(city) {
   if (i < 0) return { locality: titleCaseCity(c), region: "" };
   return { locality: titleCaseCity(c.slice(0, i).trim()), region: c.slice(i + 1).trim().replace(/\b([a-z])/g, (m) => m.toUpperCase()) };
 }
+// When a page last changed, for the sitemap's lastmod. A commit that only added or moved the
+// page's version slot changed the footer's line, not the page, so it is passed over.
 function gitDate(rel) {
-  try { const d = execSync(`git log -1 --format=%cI -- "${rel}"`, { cwd: ROOT, stdio: ["ignore", "pipe", "ignore"] }).toString().trim(); return d || null; } catch { return null; }
+  const git = (args) => execSync(`git ${args}`, { cwd: ROOT, stdio: ["ignore", "pipe", "ignore"], maxBuffer: 64 << 20 }).toString();
+  try {
+    for (const row of git(`log --format=%H%x09%cI -- "${rel}"`).split("\n").filter(Boolean)) {
+      const [hash, date] = row.split("\t");
+      if (!slotOnlyChange(git(`show --format= --unified=0 --no-color --no-ext-diff ${hash} -- "${rel}"`))) return date || null;
+    }
+    return null;
+  } catch { return null; }
 }
 const day = (iso) => (iso ? String(iso).slice(0, 10) : null);
 
@@ -205,6 +217,7 @@ const FOOTER = `<footer><div class="f-bot" style="flex-direction:column;gap:10px
     <span>© 2026 RoofCoil · <a href="tel:+19729447963" style="color:inherit;text-decoration:none">972-944-7963</a> · <a href="mailto:orders@roofcoil.com" style="color:inherit;text-decoration:none">orders@roofcoil.com</a></span>
     <span class="mono" style="letter-spacing:.12em;text-transform:uppercase">Search by ability · color · location</span>
   </div>
+  <p data-rc-versions="website" style="margin:0;font-size:11.5px;font-variant-numeric:tabular-nums"></p>
 </div></footer>`;
 const CARD_CSS = `.co{background:var(--card);border:1px solid rgba(15,61,92,.1);border-radius:12px;padding:20px 22px;margin-bottom:12px;box-shadow:var(--shadow-1)}
 .co-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 14px;margin-bottom:8px}
@@ -527,4 +540,5 @@ await fs.writeFile(dirPath, patchDirectory(await fs.readFile(dirPath, "utf8"), a
 const pages = await staticPages();
 await fs.writeFile(path.join(OUT, "sitemap.xml"), sitemapXml(pages, all));
 await fs.writeFile(path.join(OUT, "llms.txt"), llmsTxt(pages, all));
-console.log(`prerender: ${all.length} supplier pages, directory patched, sitemap (${pages.length + all.length} urls), llms.txt → ${OUT}`);
+const versioned = await stampVersionLines(OUT);
+console.log(`prerender: ${all.length} supplier pages, directory patched, sitemap (${pages.length + all.length} urls), llms.txt, version line on ${versioned} pages → ${OUT}`);

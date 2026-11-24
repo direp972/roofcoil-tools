@@ -27,3 +27,5 @@ jobs:
         env:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+      # the section versions: versions.mjs is well formed, the shop's line and every built page's line come from it
+      - run: node scripts/versions-check.mjs dist

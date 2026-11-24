@@ -13,6 +13,9 @@
 <script src="/places.js"></script>
 <style>
 .admwrap{max-width:1100px;margin:0 auto;padding:clamp(18px,3vw,34px) var(--gut) 60px}
+/* the version line waits for a view: signed out, only the sign-in box shows */
+.admver{display:none}
+body:has(#locked:not([style*="none"]),#admin:not([style*="none"])) .admver{display:block}
 .cols{display:grid;grid-template-columns:1fr 1.2fr;gap:22px;align-items:start}
 @media(max-width:960px){.cols{grid-template-columns:1fr}}
 .panel{background:var(--card);border:1px solid rgba(15,61,92,.1);border-radius:var(--r);padding:20px 22px;box-shadow:var(--shadow-1);margin-bottom:18px}
@@ -124,6 +127,8 @@
     </div>
   </div>
 </div>
+
+<div class="admwrap admver" style="padding-top:0;padding-bottom:40px"><p data-rc-versions="website" class="mono" style="font-size:10.5px;color:var(--steel);letter-spacing:.05em;font-variant-numeric:tabular-nums;margin:0"></p></div>
 
 <script>
 const SUPA="https://znueitseoqijhkkvdomc.supabase.co";
